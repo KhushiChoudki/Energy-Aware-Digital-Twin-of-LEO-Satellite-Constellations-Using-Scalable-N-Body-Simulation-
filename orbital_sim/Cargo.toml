@@ -1,0 +1,31 @@
+[package]
+name = "orbital_sim"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "orbital_sim"
+path = "src/main.rs"
+
+[dependencies]
+# Pin wgpu/winit to versions egui 0.28 depends on
+wgpu = "0.20"
+winit = { version = "0.29", features = ["rwh_06"] }
+bytemuck = { version = "1.14", features = ["derive"] }
+glam = { version = "0.29", features = ["bytemuck"] }
+pollster = "0.3"
+csv = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+rand = "0.8"
+rand_distr = "0.4"
+image = "0.24"
+egui = "0.28"
+egui-wgpu = "0.28"
+egui-winit = "0.28"
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
