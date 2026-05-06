@@ -16,9 +16,9 @@ pub struct CollisionEvent {
     pub is_primary: bool,
 }
 
-const COLLISION_DISTANCE: f64 = 3.0; // Slightly larger for secondary hits
+const COLLISION_DISTANCE: f64 = 50.0; // km for guaranteed cascade demonstration
 const INTERACTION_DISTANCE: f64 = 0.5; // km for debris interaction
-const GRID_CELL_SIZE: f64 = 15.0; // km
+const GRID_CELL_SIZE: f64 = 160.0; // km to accommodate Zarya's 150km radius
 
 pub fn check_collisions(
     bodies: &mut Vec<Body>,
@@ -60,34 +60,56 @@ pub fn check_collisions(
 
                                 let dist = (b1.pos - b2.pos).length();
 
-                                // 1. Zarya Impact (Secondary Kessler Cascade)
-                                let is_zarya_hit = main_collision_done && (
-                                    (b1.body_type == BodyType::Zarya && (b2.body_type == BodyType::CollisionDebris || b2.body_type == BodyType::PreExistingDebris)) ||
-                                    (b2.body_type == BodyType::Zarya && (b1.body_type == BodyType::CollisionDebris || b1.body_type == BodyType::PreExistingDebris))
-                                );
+                                // 1. Satellite Fragmentation (Kessler Cascade)
+                                let b1 = &bodies[i];
+                                let b2 = &bodies[j];
+                                
+                                let is_sat_1 = matches!(b1.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
+                                let is_sat_2 = matches!(b2.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
+                                
+                                // Special case for Zarya (Secondary Cascade)
+                                if (b1.body_type == BodyType::Zarya || b2.body_type == BodyType::Zarya) && dist < (b1.body_type.visual_radius() as f64 + b2.body_type.visual_radius() as f64) {
+                                    if main_collision_done {
+                                        let pos = if b1.body_type == BodyType::Zarya { b1.pos } else { b2.pos };
+                                        let vel = if b1.body_type == BodyType::Zarya { b1.vel } else { b2.vel };
+                                        let id = if b1.body_type == BodyType::Zarya { b1.id } else { b2.id };
 
-                                if is_zarya_hit && dist < COLLISION_DISTANCE {
-                                    let pos = if b1.body_type == BodyType::Zarya { b1.pos } else { b2.pos };
-                                    let vel = if b1.body_type == BodyType::Zarya { b1.vel } else { b2.vel };
-                                    let id = if b1.body_type == BodyType::Zarya { b1.id } else { b2.id };
-
-                                    // Destruction into Orange Pieces
-                                    let orange_debris = DebrisGen::generate_cloud(id, pos, vel, 200, sim_time, [1.0, 0.5, 0.0, 1.0]);
-                                    new_debris.extend(orange_debris);
+                                        let orange_debris = DebrisGen::generate_cloud(id, pos, vel, 200, sim_time, [1.0, 0.4, 0.0, 1.0]);
+                                        new_debris.extend(orange_debris);
+                                        events.push(CollisionEvent { time: sim_time, body_a_name: b1.name.clone(), body_b_name: b2.name.clone(), pos, new_debris_count: 200, is_primary: false });
+                                        to_kill.insert(b1.id); to_kill.insert(b2.id);
+                                    }
+                                }
+                                // General Satellite-Debris or Satellite-Satellite Fragmentation
+                                else if (is_sat_1 || is_sat_2) && dist < COLLISION_DISTANCE {
+                                    let pos = (b1.pos + b2.pos) * 0.5;
+                                    
+                                    // Fragment body 1 if it's a satellite
+                                    if is_sat_1 {
+                                        let name = format!("{} FRAG", b1.name);
+                                        let pieces = DebrisGen::generate_cloud(b1.id, b1.pos, b1.vel, 60, sim_time, [1.0, 0.8, 0.0, 0.9]); // Golden
+                                        for mut p in pieces { p.name = name.clone(); new_debris.push(p); }
+                                        to_kill.insert(b1.id);
+                                    }
+                                    // Fragment body 2 if it's a satellite
+                                    if is_sat_2 {
+                                        let name = format!("{} FRAG", b2.name);
+                                        let pieces = DebrisGen::generate_cloud(b2.id, b2.pos, b2.vel, 60, sim_time, [1.0, 0.8, 0.0, 0.9]); // Golden
+                                        for mut p in pieces { p.name = name.clone(); new_debris.push(p); }
+                                        to_kill.insert(b2.id);
+                                    }
 
                                     events.push(CollisionEvent {
                                         time: sim_time,
                                         body_a_name: b1.name.clone(),
                                         body_b_name: b2.name.clone(),
                                         pos,
-                                        new_debris_count: 200,
+                                        new_debris_count: 120,
                                         is_primary: false,
                                     });
-
-                                    to_kill.insert(b1.id);
-                                    to_kill.insert(b2.id);
+                                    println!("CASCADE COLLISION: {} hit {} -> Fragmented!", b1.name, b2.name);
                                 }
-                                // 2. Debris Interactions
+                                // 2. Debris Interactions (Elastic-ish Bounce)
                                 else if dist < INTERACTION_DISTANCE {
                                     bodies[i].highlight = 1.0;
                                     bodies[j].highlight = 1.0;

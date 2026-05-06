@@ -4,8 +4,8 @@
 use glam::DVec3;
 use std::collections::VecDeque;
 
-pub const SAT_TRAIL_LEN: usize = 3000; 
-pub const DEB_TRAIL_LEN: usize = 50; 
+pub const SAT_TRAIL_LEN: usize = 1200; 
+pub const DEB_TRAIL_LEN: usize = 200; 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyType {
@@ -14,26 +14,29 @@ pub enum BodyType {
     Russs,
     Iridium33,
     CollisionDebris,
+    LiveSatellite,
 }
 
 impl BodyType {
     pub fn default_color(&self) -> [f32; 4] {
         match self {
             BodyType::Zarya => [0.0, 0.6, 1.0, 1.0],          
-            BodyType::PreExistingDebris => [0.7, 0.7, 0.7, 0.8], 
+            BodyType::PreExistingDebris => [0.4, 0.4, 0.4, 0.6], 
             BodyType::Russs => [1.0, 0.1, 0.1, 1.0],            
             BodyType::Iridium33 => [1.0, 1.0, 0.0, 1.0],         
-            BodyType::CollisionDebris => [1.0, 0.5, 0.2, 0.9],   
+            BodyType::CollisionDebris => [1.0, 0.3, 0.8, 0.9], // Vibrant Magenta/Pink   
+            BodyType::LiveSatellite => [0.0, 1.0, 1.0, 1.0], // Electric Cyan
         }
     }
 
     pub fn visual_radius(&self) -> f32 {
         match self {
-            BodyType::Zarya => 150.0,         
-            BodyType::PreExistingDebris => 15.0,
+            BodyType::Zarya => 140.0,         
+            BodyType::PreExistingDebris => 8.0,
             BodyType::Russs => 110.0,         
             BodyType::Iridium33 => 110.0,     
-            BodyType::CollisionDebris => 18.0, 
+            BodyType::CollisionDebris => 45.0, 
+            BodyType::LiveSatellite => 12.0,
         }
     }
 
@@ -46,13 +49,15 @@ impl BodyType {
 
     pub fn max_trail_len(&self) -> usize {
         match self {
-            BodyType::Zarya | BodyType::Russs | BodyType::Iridium33 => SAT_TRAIL_LEN,
+            BodyType::Zarya | BodyType::Russs | BodyType::Iridium33 | BodyType::LiveSatellite => SAT_TRAIL_LEN,
             _ => DEB_TRAIL_LEN,
         }
     }
 }
 
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+use crate::data::tle_parser::TleElements;
 
 #[derive(Debug, Clone)]
 pub struct Body {
@@ -69,6 +74,7 @@ pub struct Body {
     pub highlight: f32,
     pub spawned_at: f64,
     pub color_override: Option<[f32; 4]>,
+    pub tle: Option<TleElements>,
 }
 
 impl Body {
@@ -95,6 +101,7 @@ impl Body {
             highlight: 0.0,
             spawned_at,
             color_override: None,
+            tle: None,
         }
     }
 

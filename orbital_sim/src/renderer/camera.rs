@@ -13,8 +13,8 @@ pub struct Camera {
     pub near: f32,
     pub far: f32,
 
-    dragging: bool,
-    last_mouse: Option<(f32, f32)>,
+    pub dragging: bool,
+    pub last_mouse: Option<(f32, f32)>,
 }
 
 impl Camera {
@@ -64,12 +64,13 @@ impl Camera {
     }
 
     pub fn on_mouse_move(&mut self, x: f32, y: f32) {
-        if !self.dragging { return; }
-        if let Some((lx, ly)) = self.last_mouse {
-            let dx = x - lx;
-            let dy = y - ly;
-            self.yaw -= dx * 0.005;
-            self.pitch = (self.pitch + dy * 0.005).clamp(-1.5, 1.5);
+        if self.dragging {
+            if let Some((lx, ly)) = self.last_mouse {
+                let dx = x - lx;
+                let dy = y - ly;
+                self.yaw -= dx * 0.005;
+                self.pitch = (self.pitch + dy * 0.005).clamp(-1.5, 1.5);
+            }
         }
         self.last_mouse = Some((x, y));
     }

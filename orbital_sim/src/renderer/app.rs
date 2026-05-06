@@ -18,7 +18,10 @@ use crate::data::{
     tle_parser::load_tle,
     aer_decoder::parse_debris_aer,
 };
-use crate::simulation::state::SimState;
+use crate::simulation::{
+    state::SimState,
+    body::{Body, BodyType},
+};
 use crate::renderer::{
     camera::Camera,
     gpu_state::GpuState,
@@ -39,7 +42,81 @@ pub fn run() -> Result<()> {
     let iridium_tle = load_tle(IRIDIUM_TLE);
     let debris_points = parse_debris_aer(DEBRIS_AER, &zarya_ephem);
 
-    let mut sim = SimState::new(zarya_ephem, debris_points, russs_tle, iridium_tle);
+    // Load Debris TLEs
+    let mut debris_tles = Vec::new();
+    
+    // 1. Cosmos 2251 Debris
+    if let Ok(cosmos_content) = std::fs::read_to_string("../COSMOS 2251.txt") {
+        debris_tles.extend(crate::data::tle_parser::parse_many(&cosmos_content));
+    }
+    
+    // 2. Iridium 33 Debris folder
+    let iridium_dir = "../iridium33/debris_folder";
+    if let Ok(entries) = std::fs::read_dir(iridium_dir) {
+        for entry in entries.flatten() {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                let mut tles = crate::data::tle_parser::parse_many(&content);
+                // The files might not have names, let's fix them if needed
+                for tle in tles.iter_mut() {
+                    if tle.name == "UNKNOWN" {
+                        tle.name = format!("IRIDIUM DEB-{}", entry.file_name().to_string_lossy());
+                    }
+                }
+                debris_tles.extend(tles);
+            }
+        }
+    }
+
+    let mut sim = SimState::new(zarya_ephem, debris_points, russs_tle, iridium_tle, debris_tles);
+    sim.jd_start = 2461162.5; // May 2, 2026 (Approx)
+    
+    // ... later in the file after loading live sats ...
+    // Actually, I'll call it right after live sats are loaded in the real file structure.
+
+    // 3. Live LEO Satellites
+    if let Ok(active_content) = std::fs::read_to_string("active_sats.txt") {
+        let active_tles = crate::data::tle_parser::parse_many(&active_content);
+        println!("Loaded {} active satellites. Filtering for LEO...", active_tles.len());
+        
+        let mut live_sats = Vec::new();
+        for tle in active_tles {
+            // Check semi-major axis first (much faster than propagation)
+            let a = tle.semi_major_axis();
+            let alt_avg = a - 6371.0;
+            
+            if alt_avg > 100.0 && alt_avg < 2000.0 {
+                // Propagate at JD_START
+                let dt_from_epoch = (sim.jd_start - tle.epoch_jd) * 86400.0;
+                let (pos, vel) = tle.propagate(dt_from_epoch);
+                
+                let mut body = Body::new(
+                    tle.name.clone(),
+                    BodyType::LiveSatellite,
+                    pos,
+                    vel,
+                    500.0,
+                    0.005,
+                    0.0,
+                );
+                
+                // Assign Unique Color based on name
+                let mut hash: u32 = 0;
+                for b in tle.name.bytes() {
+                    hash = hash.wrapping_mul(31).wrapping_add(b as u32);
+                }
+                let r = ((hash & 0xFF0000) >> 16) as f32 / 255.0;
+                let g = ((hash & 0x00FF00) >> 8) as f32 / 255.0;
+                let b = (hash & 0x0000FF) as f32 / 255.0;
+                body.color_override = Some([0.4 + r * 0.6, 0.4 + g * 0.6, 0.4 + b * 0.6, 1.0]);
+
+                body.tle = Some(tle);
+                live_sats.push(body);
+            }
+        }
+        println!("Adding {} LEO satellites to simulation.", live_sats.len());
+        sim.bodies.extend(live_sats);
+        sim.export_tle_csv();
+    }
 
     let event_loop = EventLoop::new()?;
     let window = Arc::new(
@@ -63,6 +140,7 @@ pub fn run() -> Result<()> {
 
     let mut last_frame = Instant::now();
     let mut selected_body: Option<u64> = None;
+    let mut search_query = String::new();
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Poll);
@@ -90,7 +168,59 @@ pub fn run() -> Result<()> {
                         };
                         match state {
                             ElementState::Pressed => camera.on_mouse_press(btn),
-                            ElementState::Released => camera.on_mouse_release(btn),
+                            ElementState::Released => {
+                                camera.on_mouse_release(btn);
+                                if btn == 0 {
+                                    // Left click released -> Try selection
+                                    if let Some(pos) = camera.last_mouse {
+                                        let size = window.inner_size();
+                                        let mut best_id = None;
+                                        let mut best_score = f32::MAX;
+
+                                        let vp = camera.view_proj();
+                                        for body in &sim.bodies {
+                                            if !body.alive { continue; }
+                                            
+                                            // Project body to NDC
+                                            let world_pos = glam::Vec3::new(body.pos.x as f32 * 0.01, body.pos.y as f32 * 0.01, body.pos.z as f32 * 0.01);
+                                            let ndc = vp.project_point3(world_pos);
+                                            
+                                            // Depth check: ignore things far behind or far beyond
+                                            if ndc.z < -1.0 || ndc.z > 1.0 { continue; }
+
+                                            // NDC to Screen space
+                                            let screen_x = (ndc.x + 1.0) * 0.5 * size.width as f32;
+                                            let screen_y = (1.0 - ndc.y) * 0.5 * size.height as f32;
+
+                                            let dist_px = ((screen_x - pos.0).powi(2) + (screen_y - pos.1).powi(2)).sqrt();
+                                            
+                                            // Dynamic hit radius based on body's visual size
+                                            // visual_radius is roughly "pixel radius" at distance 100? No, it's world units.
+                                            // Let's use a combination of fixed threshold and proximity.
+                                            let hit_threshold = (body.body_type.visual_radius() * 0.5).max(30.0); 
+
+                                            if dist_px < hit_threshold {
+                                                // Score based on distance and depth (prefer closer to camera and closer to mouse)
+                                                let score = dist_px + ndc.z * 10.0;
+                                                if score < best_score {
+                                                    best_score = score;
+                                                    best_id = Some(body.id);
+                                                }
+                                            }
+                                        }
+                                        
+                                        if let Some(id) = best_id {
+                                            selected_body = Some(id);
+                                            if let Some(b) = sim.bodies.iter_mut().find(|b| b.id == id) {
+                                                println!("Selection Success: {} (ID: {}) dist={:.1}px", b.name, b.id, best_score);
+                                                b.highlight = 1.0;
+                                            }
+                                        } else {
+                                            println!("Selection Failed: Click at {:?} did not hit any body", pos);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     WindowEvent::CursorMoved { position, .. } => {
@@ -123,7 +253,7 @@ pub fn run() -> Result<()> {
                         if size.width == 0 || size.height == 0 { return; }
 
                         let aspect = size.width as f32 / size.height as f32;
-                        gpu.update_uniforms(camera.view_proj(), sim.time as f32, sim.flash_intensity, aspect);
+                        gpu.update_uniforms(camera.view_proj(), sim.time as f32, sim.flash_intensity, aspect, camera.distance);
                         gpu.update_bodies(&sim.bodies);
                         gpu.update_trails(&sim.bodies);
 
@@ -193,7 +323,7 @@ pub fn run() -> Result<()> {
                         let raw_input = egui_state.take_egui_input(&window);
                         let full_output = egui_ctx.run(raw_input, |ctx| {
                             let size = window.inner_size();
-                            draw_hud(ctx, &mut sim, &camera, &mut selected_body, (size.width, size.height));
+                            draw_hud(ctx, &mut sim, &mut camera, &mut selected_body, &mut search_query, (size.width, size.height));
                         });
                         egui_state.handle_platform_output(&window, full_output.platform_output.clone());
 

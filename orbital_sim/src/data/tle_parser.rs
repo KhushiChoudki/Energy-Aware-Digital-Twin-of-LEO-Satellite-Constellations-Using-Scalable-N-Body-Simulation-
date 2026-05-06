@@ -8,6 +8,7 @@ const MU: f64 = 398600.4418; // km^3/s^2
 const RE: f64 = 6378.137;    // km
 const J2: f64 = 1.08262668e-3;
 
+#[derive(Debug, Clone)]
 pub struct TleElements {
     pub name: String,
     pub inclination: f64,    // radians
@@ -17,6 +18,8 @@ pub struct TleElements {
     pub mean_anomaly: f64,   // radians
     pub mean_motion: f64,    // rad/s
     pub epoch_jd: f64,       // Julian Day
+    pub raw_line1: String,
+    pub raw_line2: String,
 }
 
 impl TleElements {
@@ -45,6 +48,8 @@ impl TleElements {
             mean_anomaly: ma,
             mean_motion: mm_rads,
             epoch_jd,
+            raw_line1: line1.to_string(),
+            raw_line2: line2.to_string(),
         }
     }
 
@@ -155,8 +160,38 @@ fn parse_epoch_to_jd(epoch: &str) -> f64 {
 /// Load TLE from a 3-line text file content
 pub fn load_tle(content: &str) -> TleElements {
     let lines: Vec<&str> = content.lines().collect();
-    let name = lines.get(0).copied().unwrap_or("UNKNOWN").trim();
-    let line1 = lines.get(1).copied().unwrap_or("").trim();
-    let line2 = lines.get(2).copied().unwrap_or("").trim();
-    TleElements::from_lines(name, line1, line2)
+    if lines.len() >= 3 {
+        let name = lines[0].trim();
+        let l1 = lines[1].trim();
+        let l2 = lines[2].trim();
+        TleElements::from_lines(name, l1, l2)
+    } else if lines.len() == 2 {
+        // Assume default name
+        TleElements::from_lines("UNKNOWN", lines[0].trim(), lines[1].trim())
+    } else {
+        TleElements::from_lines("ERROR", "", "")
+    }
 }
+
+/// Parse many TLEs from a single string
+pub fn parse_many(content: &str) -> Vec<TleElements> {
+    let lines: Vec<&str> = content.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let mut tles = Vec::new();
+    
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].starts_with('1') && i + 1 < lines.len() && lines[i+1].starts_with('2') {
+            // 2-line format
+            tles.push(TleElements::from_lines("UNKNOWN", lines[i], lines[i+1]));
+            i += 2;
+        } else if i + 2 < lines.len() && lines[i+1].starts_with('1') && lines[i+2].starts_with('2') {
+            // 3-line format
+            tles.push(TleElements::from_lines(lines[i], lines[i+1], lines[i+2]));
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    tles
+}
+

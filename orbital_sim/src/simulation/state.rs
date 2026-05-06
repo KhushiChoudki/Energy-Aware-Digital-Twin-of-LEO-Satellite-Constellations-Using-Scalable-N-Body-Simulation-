@@ -13,7 +13,7 @@ use crate::simulation::{
     integrator::rk4_step,
 };
 
-pub const MAX_DEBRIS: usize = 8000; 
+pub const MAX_DEBRIS: usize = 50000; 
 pub const PRESENTATION_COLLISION_TIME: f64 = 500.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,8 +49,11 @@ pub struct SimState {
     pub russs_tle: TleElements,
     pub iridium_tle: TleElements,
     
+    pub debris_tles: Vec<TleElements>,
+
     pub russs_offset: f64,
     pub iridium_offset: f64,
+    pub jd_start: f64,
 }
 
 impl SimState {
@@ -59,6 +62,7 @@ impl SimState {
         debris_points: Vec<DebrisPoint>,
         russs_tle: TleElements,
         iridium_tle: TleElements,
+        debris_tles: Vec<TleElements>,
     ) -> Self {
         let mut state = SimState {
             time: 0.0,
@@ -76,8 +80,10 @@ impl SimState {
             flash_intensity: 0.0,
             russs_tle,
             iridium_tle,
+            debris_tles,
             russs_offset: 0.0,
             iridium_offset: 0.0,
+            jd_start: 0.0, // Will be set in app.rs
         };
         state.force_geometric_intersection();
         state.precompute_paths();
@@ -210,6 +216,23 @@ impl SimState {
     fn integrate_step(&mut self, dt: f64) {
         for body in self.bodies.iter_mut() {
             if !body.alive { continue; }
+            
+            // Priority 1: TLE Data (if explicitly attached)
+            if let Some(tle) = &body.tle {
+                let (pos, vel) = if body.body_type == BodyType::LiveSatellite {
+                    // Sync to current JD
+                    let dt_from_epoch = (self.jd_start - tle.epoch_jd) * 86400.0 + self.time;
+                    tle.propagate(dt_from_epoch)
+                } else {
+                    // Scenario-based offset for debris cloud
+                    let offset = if body.name.contains("IRIDIUM") { self.iridium_offset } else { self.russs_offset };
+                    tle.propagate(self.time + offset)
+                };
+                body.pos = pos;
+                body.vel = vel;
+                continue;
+            }
+
             match body.body_type {
                 BodyType::Zarya => {
                     if let Some((pos, vel)) = interpolate_ephemeris(&self.zarya_ephem, self.time) {
@@ -247,13 +270,61 @@ impl SimState {
 
         use crate::simulation::debris_gen::DebrisGen;
         // Exact Piece Counts: 893 for Russs, 366 for Iridium
-        let ru_deb = DebrisGen::generate_cloud(self.russs_id.unwrap_or(0), pos, v_ru, 893, self.time, [1.0, 0.2, 0.8, 1.0]);
-        let ir_deb = DebrisGen::generate_cloud(self.iridium_id.unwrap_or(0), pos, v_ir, 366, self.time, [1.0, 0.2, 0.8, 1.0]);
+        let mut ru_deb = DebrisGen::generate_cloud(self.russs_id.unwrap_or(0), pos, v_ru, 893, self.time, [1.0, 0.2, 0.8, 1.0]);
+        let mut ir_deb = DebrisGen::generate_cloud(self.iridium_id.unwrap_or(0), pos, v_ir, 366, self.time, [1.0, 0.2, 0.8, 1.0]);
         
+        // Assign TLEs to Cosmos (Russs) debris
+        let cosmos_tles: Vec<_> = self.debris_tles.iter()
+            .filter(|t| t.name.contains("COSMOS") || t.name.contains("2251"))
+            .cloned()
+            .collect();
+        
+        for (i, tle) in cosmos_tles.into_iter().enumerate() {
+            if i < ru_deb.len() {
+                ru_deb[i].name = tle.name.clone();
+                ru_deb[i].tle = Some(tle);
+            }
+        }
+
+        // Assign TLEs to Iridium debris
+        let iridium_tles: Vec<_> = self.debris_tles.iter()
+            .filter(|t| t.name.contains("IRIDIUM"))
+            .cloned()
+            .collect();
+
+        for (i, tle) in iridium_tles.into_iter().enumerate() {
+            if i < ir_deb.len() {
+                ir_deb[i].name = tle.name.clone();
+                ir_deb[i].tle = Some(tle);
+            }
+        }
+
         self.bodies.extend(ru_deb);
         self.bodies.extend(ir_deb);
 
         self.phase = SimPhase::CollisionFlash(self.time);
         println!("PRIMARY COLLISION: Exact {} pieces generated.", 893 + 366);
+    }
+    pub fn export_tle_csv(&self) {
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::File::create("tle_dataset.csv") {
+            let _ = writeln!(file, "Name,Inclination_Deg,Eccentricity,SemiMajorAxis_km,Type");
+            for body in &self.bodies {
+                if let Some(tle) = &body.tle {
+                    let type_str = match body.body_type {
+                        BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya => "SATELLITE",
+                        _ => "DEBRIS",
+                    };
+                    let _ = writeln!(file, "{},{:.4},{:.6},{:.2},{}", 
+                        body.name, 
+                        tle.inclination.to_degrees(), 
+                        tle.eccentricity, 
+                        tle.semi_major_axis(),
+                        type_str
+                    );
+                }
+            }
+            println!("SUCCESS: Exported TLE dataset to tle_dataset.csv");
+        }
     }
 }

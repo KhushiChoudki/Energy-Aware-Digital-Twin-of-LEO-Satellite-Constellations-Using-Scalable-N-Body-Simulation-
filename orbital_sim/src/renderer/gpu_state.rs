@@ -17,7 +17,7 @@ pub struct Uniforms {
     pub time: f32,
     pub flash: f32,
     pub aspect: f32,
-    pub _pad: f32,
+    pub camera_dist: f32, 
 }
 
 #[repr(C)]
@@ -105,14 +105,14 @@ impl<'a> GpuState<'a> {
         // Pre-allocate large buffers to avoid runtime resizing
         let body_instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("body_inst"),
-            size: (std::mem::size_of::<BodyInstance>() * (MAX_DEBRIS + 100)) as u64,
+            size: (std::mem::size_of::<BodyInstance>() * (MAX_DEBRIS + 1000)) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let trail_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("trail"),
-            size: (std::mem::size_of::<[f32; 7]>() * 2_000_000) as u64,
+            size: (std::mem::size_of::<[f32; 7]>() * 8_000_000) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -124,7 +124,7 @@ impl<'a> GpuState<'a> {
             mapped_at_creation: false,
         });
 
-        let uniforms = Uniforms { view_proj: Mat4::IDENTITY.to_cols_array_2d(), time: 0.0, flash: 0.0, aspect: 1.0, _pad: 0.0 };
+        let uniforms = Uniforms { view_proj: Mat4::IDENTITY.to_cols_array_2d(), time: 0.0, flash: 0.0, aspect: 1.0, camera_dist: 250.0 };
         let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("uniforms"),
             contents: bytemuck::cast_slice(&[uniforms]),
@@ -157,8 +157,8 @@ impl<'a> GpuState<'a> {
 
     pub fn format(&self) -> wgpu::TextureFormat { self.surface_config.format }
 
-    pub fn update_uniforms(&self, vp: Mat4, time: f32, flash: f32, aspect: f32) {
-        let u = Uniforms { view_proj: vp.to_cols_array_2d(), time, flash, aspect, _pad: 0.0 };
+    pub fn update_uniforms(&self, vp: Mat4, time: f32, flash: f32, aspect: f32, camera_dist: f32) {
+        let u = Uniforms { view_proj: vp.to_cols_array_2d(), time, flash, aspect, camera_dist };
         self.queue.write_buffer(&self.uniform_buf, 0, bytemuck::cast_slice(&[u]));
     }
 
@@ -169,8 +169,8 @@ impl<'a> GpuState<'a> {
             for i in 1..path.points.len() {
                 let p0 = path.points[i-1];
                 let p1 = path.points[i];
-                verts.extend_from_slice(&[p0.x as f32 * SCALE, p0.y as f32 * SCALE, p0.z as f32 * SCALE, color[0], color[1], color[2], 0.3]);
-                verts.extend_from_slice(&[p1.x as f32 * SCALE, p1.y as f32 * SCALE, p1.z as f32 * SCALE, color[0], color[1], color[2], 0.3]);
+                verts.extend_from_slice(&[p0.x as f32 * SCALE, p0.y as f32 * SCALE, p0.z as f32 * SCALE, color[0], color[1], color[2], 0.1]);
+                verts.extend_from_slice(&[p1.x as f32 * SCALE, p1.y as f32 * SCALE, p1.z as f32 * SCALE, color[0], color[1], color[2], 0.1]);
             }
         }
         self.static_path_count = (verts.len() / 7) as u32;
@@ -206,13 +206,13 @@ impl<'a> GpuState<'a> {
             for i in 1..n {
                 let p0 = body.trail[i-1];
                 let p1 = body.trail[i];
-                let alpha = (i as f32 / n as f32) * 0.7;
+                let alpha = (i as f32 / n as f32) * 0.5;
                 verts.extend_from_slice(&[p0[0]*SCALE, p0[1]*SCALE, p0[2]*SCALE, c[0], c[1], c[2], alpha]);
                 verts.extend_from_slice(&[p1[0]*SCALE, p1[1]*SCALE, p1[2]*SCALE, c[0], c[1], c[2], alpha]);
                 // Safety break to avoid buffer overflow
-                if verts.len() > 1_900_000 { break; }
+                if verts.len() > 7_900_000 { break; }
             }
-            if verts.len() > 1_900_000 { break; }
+            if verts.len() > 7_900_000 { break; }
         }
         self.trail_vertex_count = (verts.len() / 7) as u32;
         if !verts.is_empty() {

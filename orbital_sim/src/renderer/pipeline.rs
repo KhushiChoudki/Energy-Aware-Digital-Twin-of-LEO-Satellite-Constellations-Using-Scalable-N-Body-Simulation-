@@ -150,7 +150,7 @@ impl Pipelines {
 }
 
 const EARTH_WGSL: &str = "
-struct Uniforms { view_proj: mat4x4<f32>, time: f32, flash: f32, aspect: f32, _pad: f32 };
+struct Uniforms { view_proj: mat4x4<f32>, time: f32, flash: f32, aspect: f32, camera_dist: f32 };
 @group(0) @binding(0) var<uniform> uni: Uniforms;
 @group(1) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(1) @binding(1) var s_diffuse: sampler;
@@ -159,7 +159,7 @@ struct VIn { @location(0) pos: vec3<f32>, @location(1) norm: vec3<f32>, @locatio
 struct VOut { @builtin(position) clip_pos: vec4<f32>, @location(0) uv: vec2<f32>, @location(1) norm: vec3<f32> };
 
 @vertex fn vs_main(v: VIn) -> VOut {
-    let omega_e = 7.292115e-5;
+    let omega_e = 1.5e-3; // Boosted rotation for visual drama (phys: 7.29e-5)
     let angle = omega_e * uni.time;
     let c = cos(angle); let s = sin(angle);
     let rot_pos = vec3<f32>(c * v.pos.x - s * v.pos.z, v.pos.y, s * v.pos.x + c * v.pos.z);
@@ -181,7 +181,7 @@ struct VOut { @builtin(position) clip_pos: vec4<f32>, @location(0) uv: vec2<f32>
 ";
 
 const BODY_WGSL: &str = "
-struct Uniforms { view_proj: mat4x4<f32>, time: f32, flash: f32, aspect: f32, _pad: f32 };
+struct Uniforms { view_proj: mat4x4<f32>, time: f32, flash: f32, aspect: f32, camera_dist: f32 };
 @group(0) @binding(0) var<uniform> uni: Uniforms;
 
 struct VIn { @builtin(vertex_index) vid: u32, @location(0) pos: vec3<f32>, @location(1) radius: f32, @location(2) color: vec4<f32>, @location(3) kind: f32 };
@@ -200,18 +200,29 @@ struct VOut { @builtin(position) clip_pos: vec4<f32>, @location(0) color: vec4<f
         default: { uv = vec2<f32>(0.0, 0.0); }
     }
     let center_clip = uni.view_proj * vec4<f32>(v.pos, 1.0);
-    // Increase size for ultra-high visibility
-    let size = v.radius * 3.0; 
+    
+    // Altitude-based Shell Visibility (LOD)
+    let dist = length(v.pos);
+    let camera_alt = uni.camera_dist;
+    let diff = abs(dist - camera_alt);
+    
+    // Wider window for debris (kind > 0.5) to keep collisions visible
+    let window = select(20.0, 45.0, v.kind > 0.5);
+    let alpha_scale = max(0.2, 1.0 - smoothstep(window * 0.4, window * 1.6, diff));
+
+    // Balanced size for both LEO and Primary events
+    let size = v.radius * 1.2; 
     let offset = uv * size;
     var out: VOut;
     out.clip_pos = center_clip + vec4<f32>(offset.x / uni.aspect, offset.y, 0.0, 0.0);
-    out.color = v.color; out.uv = uv; out.kind = v.kind;
+    out.color = vec4<f32>(v.color.rgb, v.color.a * alpha_scale); out.uv = uv; out.kind = v.kind;
     return out;
 }
 
 fn hash(p: vec2<f32>) -> f32 { return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453123); }
 
 @fragment fn fs_body(v: VOut) -> @location(0) vec4<f32> {
+    if (v.color.a < 0.05) { discard; }
     let dist = length(v.uv);
     if (v.kind > 0.5) {
         // High-visibility debris (glowing rocks)
@@ -232,19 +243,26 @@ fn hash(p: vec2<f32>) -> f32 { return fract(sin(dot(p, vec2<f32>(127.1, 311.7)))
 ";
 
 const TRAIL_WGSL: &str = "
-struct Uniforms { view_proj: mat4x4<f32>, time: f32, flash: f32, aspect: f32, _pad: f32 };
+struct Uniforms { view_proj: mat4x4<f32>, time: f32, flash: f32, aspect: f32, camera_dist: f32 };
 @group(0) @binding(0) var<uniform> uni: Uniforms;
 struct VIn { @location(0) pos: vec3<f32>, @location(1) color: vec4<f32> };
 struct VOut { @builtin(position) clip_pos: vec4<f32>, @location(0) color: vec4<f32> };
 
 @vertex fn vs_main(v: VIn) -> VOut {
+    let center_clip = uni.view_proj * vec4<f32>(v.pos, 1.0);
+    
+    let dist = length(v.pos);
+    let diff = abs(dist - uni.camera_dist);
+    let alpha_scale = max(0.2, 1.0 - smoothstep(10.0, 40.0, diff));
+
     var out: VOut;
-    out.clip_pos = uni.view_proj * vec4<f32>(v.pos, 1.0);
-    out.color = v.color;
+    out.clip_pos = center_clip;
+    out.color = vec4<f32>(v.color.rgb, v.color.a * alpha_scale);
     return out;
 }
 
 @fragment fn fs_main(v: VOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(v.color.rgb, v.color.a * 1.5); // Brighter trails
+    if (v.color.a < 0.05) { discard; }
+    return vec4<f32>(v.color.rgb, v.color.a * 1.2); // Balanced trails
 }
 ";
