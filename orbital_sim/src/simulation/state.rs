@@ -11,6 +11,7 @@ use crate::simulation::{
     body::{Body, BodyType},
     collision::{check_collisions, CollisionEvent},
     integrator::rk4_step,
+    gnn_predictor::GnnPredictor,
 };
 
 pub const MAX_DEBRIS: usize = 50000; 
@@ -54,6 +55,7 @@ pub struct SimState {
     pub russs_offset: f64,
     pub iridium_offset: f64,
     pub jd_start: f64,
+    pub predictor: GnnPredictor,
 }
 
 impl SimState {
@@ -83,7 +85,8 @@ impl SimState {
             debris_tles,
             russs_offset: 0.0,
             iridium_offset: 0.0,
-            jd_start: 0.0, // Will be set in app.rs
+            jd_start: 0.0, 
+            predictor: GnnPredictor::new(),
         };
         state.force_geometric_intersection();
         state.precompute_paths();
@@ -95,6 +98,8 @@ impl SimState {
         let mut min_dist = f64::MAX;
         let mut best_t_ru = 0.0;
         let mut best_t_ir = 0.0;
+
+        // Stage 1: Coarse Search (30s steps)
         for i in 0..200 {
             let t_ru = i as f64 * 30.0;
             let (p_ru, _) = self.russs_tle.propagate(t_ru);
@@ -109,8 +114,46 @@ impl SimState {
                 }
             }
         }
+
+        // Stage 2: Fine Search (0.1s steps around coarse match)
+        let coarse_ru = best_t_ru;
+        let coarse_ir = best_t_ir;
+        for i in -300..300 {
+            let t_ru = coarse_ru + (i as f64 * 0.1);
+            let (p_ru, _) = self.russs_tle.propagate(t_ru);
+            for j in -300..300 {
+                let t_ir = coarse_ir + (j as f64 * 0.1);
+                let (p_ir, _) = self.iridium_tle.propagate(t_ir);
+                let d = (p_ru - p_ir).length();
+                if d < min_dist {
+                    min_dist = d;
+                    best_t_ru = t_ru;
+                    best_t_ir = t_ir;
+                }
+            }
+        }
+
+        // Stage 3: Millisecond Precision (0.001s steps)
+        let fine_ru = best_t_ru;
+        let fine_ir = best_t_ir;
+        for i in -100..100 {
+            let t_ru = fine_ru + (i as f64 * 0.001);
+            let (p_ru, _) = self.russs_tle.propagate(t_ru);
+            for j in -100..100 {
+                let t_ir = fine_ir + (j as f64 * 0.001);
+                let (p_ir, _) = self.iridium_tle.propagate(t_ir);
+                let d = (p_ru - p_ir).length();
+                if d < min_dist {
+                    min_dist = d;
+                    best_t_ru = t_ru;
+                    best_t_ir = t_ir;
+                }
+            }
+        }
+
         self.russs_offset = best_t_ru - PRESENTATION_COLLISION_TIME;
         self.iridium_offset = best_t_ir - PRESENTATION_COLLISION_TIME;
+        println!("ORBITAL INTERCEPT REFINED: Min Distance = {:.6} km ({} meters)", min_dist, (min_dist * 1000.0) as i32);
     }
 
     fn precompute_paths(&mut self) {
@@ -139,23 +182,23 @@ impl SimState {
 
     fn init_bodies(&mut self) {
         if let Some((pos, vel)) = interpolate_ephemeris(&self.zarya_ephem, 0.0) {
-            let zarya = Body::new("ISS Zarya".to_string(), BodyType::Zarya, pos, vel, 420_000.0, 0.05, 0.0);
+            let zarya = Body::new("ISS Zarya".to_string(), BodyType::Zarya, pos, vel, 420_000.0, 0.1, 0.0); // 100m radius
             self.zarya_id = Some(zarya.id);
             self.bodies.push(zarya);
         }
 
         for dp in self.debris_points.iter().step_by(20) {
-            let d = Body::new(format!("DEB-{}", dp.time_s), BodyType::PreExistingDebris, dp.pos_eci, dp.vel_eci, 100.0, 0.01, 0.0);
+            let d = Body::new(format!("DEB-{}", dp.time_s), BodyType::PreExistingDebris, dp.pos_eci, dp.vel_eci, 100.0, 0.005, 0.0); // 5m radius
             self.bodies.push(d);
         }
 
         let (ru_pos, ru_vel) = self.russs_tle.propagate(self.russs_offset);
-        let russs = Body::new("Cosmos-2251".to_string(), BodyType::Russs, ru_pos, ru_vel, 900_000.0, 0.04, 0.0);
+        let russs = Body::new("Cosmos-2251".to_string(), BodyType::Russs, ru_pos, ru_vel, 900_000.0, 0.015, 0.0); // 15m radius
         self.russs_id = Some(russs.id);
         self.bodies.push(russs);
 
         let (ir_pos, ir_vel) = self.iridium_tle.propagate(self.iridium_offset);
-        let iridium = Body::new("Iridium-33".to_string(), BodyType::Iridium33, ir_pos, ir_vel, 689_000.0, 0.04, 0.0);
+        let iridium = Body::new("Iridium-33".to_string(), BodyType::Iridium33, ir_pos, ir_vel, 689_000.0, 0.015, 0.0); // 15m radius
         self.iridium_id = Some(iridium.id);
         self.bodies.push(iridium);
     }
@@ -210,7 +253,10 @@ impl SimState {
         }
         self.collision_events.extend(events);
 
-        self.bodies.retain(|b| b.alive || (b.body_type == BodyType::Zarya && self.phase == SimPhase::PreCollision));
+        self.bodies.retain(|b| b.alive);
+        
+        // ─── GNN AI PREDICTION STEP ───
+        self.predictor.update(&self.bodies);
     }
 
     fn integrate_step(&mut self, dt: f64) {
@@ -270,8 +316,8 @@ impl SimState {
 
         use crate::simulation::debris_gen::DebrisGen;
         // Exact Piece Counts: 893 for Russs, 366 for Iridium
-        let mut ru_deb = DebrisGen::generate_cloud(self.russs_id.unwrap_or(0), pos, v_ru, 893, self.time, [1.0, 0.2, 0.8, 1.0]);
-        let mut ir_deb = DebrisGen::generate_cloud(self.iridium_id.unwrap_or(0), pos, v_ir, 366, self.time, [1.0, 0.2, 0.8, 1.0]);
+        let mut ru_deb = DebrisGen::generate_cloud(self.russs_id.unwrap_or(0), pos, v_ru, 900.0, 893, self.time, [1.0, 0.2, 0.8, 1.0]);
+        let mut ir_deb = DebrisGen::generate_cloud(self.iridium_id.unwrap_or(0), pos, v_ir, 560.0, 366, self.time, [1.0, 0.2, 0.8, 1.0]);
         
         // Assign TLEs to Cosmos (Russs) debris
         let cosmos_tles: Vec<_> = self.debris_tles.iter()

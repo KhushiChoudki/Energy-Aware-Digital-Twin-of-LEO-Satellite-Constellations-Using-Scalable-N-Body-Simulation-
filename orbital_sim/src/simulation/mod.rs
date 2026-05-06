@@ -5,3 +5,4 @@ pub mod collision;
 pub mod debris_gen;
 pub mod integrator;
 pub mod state;
+pub mod gnn_predictor;

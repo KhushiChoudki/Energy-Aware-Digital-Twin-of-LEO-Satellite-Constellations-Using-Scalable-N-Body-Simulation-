@@ -20,23 +20,23 @@ pub enum BodyType {
 impl BodyType {
     pub fn default_color(&self) -> [f32; 4] {
         match self {
-            BodyType::Zarya => [0.0, 0.6, 1.0, 1.0],          
+            BodyType::Zarya => [0.0, 1.0, 1.0, 0.9],          
             BodyType::PreExistingDebris => [0.4, 0.4, 0.4, 0.6], 
-            BodyType::Russs => [1.0, 0.1, 0.1, 1.0],            
-            BodyType::Iridium33 => [1.0, 1.0, 0.0, 1.0],         
-            BodyType::CollisionDebris => [1.0, 0.3, 0.8, 0.9], // Vibrant Magenta/Pink   
-            BodyType::LiveSatellite => [0.0, 1.0, 1.0, 1.0], // Electric Cyan
+            BodyType::Russs => [0.0, 1.0, 1.0, 0.9],            
+            BodyType::Iridium33 => [0.0, 1.0, 1.0, 0.9],         
+            BodyType::CollisionDebris => [1.0, 0.3, 0.8, 0.9], 
+            BodyType::LiveSatellite => [0.0, 1.0, 1.0, 0.9], 
         }
     }
 
     pub fn visual_radius(&self) -> f32 {
         match self {
-            BodyType::Zarya => 140.0,         
-            BodyType::PreExistingDebris => 8.0,
-            BodyType::Russs => 110.0,         
-            BodyType::Iridium33 => 110.0,     
-            BodyType::CollisionDebris => 45.0, 
-            BodyType::LiveSatellite => 12.0,
+            BodyType::Zarya => 250.0,         
+            BodyType::PreExistingDebris => 10.0,
+            BodyType::Russs => 200.0,         
+            BodyType::Iridium33 => 200.0,     
+            BodyType::CollisionDebris => 60.0, 
+            BodyType::LiveSatellite => 150.0,
         }
     }
 

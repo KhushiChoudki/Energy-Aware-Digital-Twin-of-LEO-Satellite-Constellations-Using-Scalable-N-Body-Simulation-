@@ -1,10 +1,10 @@
 // src/simulation/collision.rs
-// Grid-based collision detection with Zarya destruction logic
+// Grid-based collision detection with High-Fidelity Radii-Sum logic
 
 use glam::DVec3;
 use crate::simulation::body::{Body, BodyType};
 use crate::simulation::debris_gen::DebrisGen;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct CollisionEvent {
@@ -16,9 +16,9 @@ pub struct CollisionEvent {
     pub is_primary: bool,
 }
 
-const COLLISION_DISTANCE: f64 = 50.0; // km for guaranteed cascade demonstration
-const INTERACTION_DISTANCE: f64 = 0.5; // km for debris interaction
-const GRID_CELL_SIZE: f64 = 160.0; // km to accommodate Zarya's 150km radius
+const CONJUNCTION_THRESHOLD: f64 = 5.0; // km for visual "near-miss" highlight
+const INTERACTION_DISTANCE: f64 = 0.5; // km for debris interaction (elastic bounce)
+const GRID_CELL_SIZE: f64 = 80.0; // km for efficient spatial partitioning
 
 pub fn check_collisions(
     bodies: &mut Vec<Body>,
@@ -29,7 +29,8 @@ pub fn check_collisions(
 ) -> (Vec<CollisionEvent>, Vec<Body>) {
     let mut events = Vec::new();
     let mut new_debris: Vec<Body> = Vec::new();
-    let mut to_kill = std::collections::HashSet::new();
+    let mut to_kill = HashSet::new();
+    let mut to_highlight = HashSet::new();
 
     let mut grid: HashMap<(i32, i32, i32), Vec<usize>> = HashMap::new();
     for (idx, body) in bodies.iter().enumerate() {
@@ -40,7 +41,7 @@ pub fn check_collisions(
         grid.entry((gx, gy, gz)).or_default().push(idx);
     }
 
-    let mut pairs_checked = std::collections::HashSet::new();
+    let mut pairs_checked = HashSet::new();
     let grid_keys: Vec<_> = grid.keys().cloned().collect();
 
     for &(gx, gy, gz) in &grid_keys {
@@ -54,72 +55,81 @@ pub fn check_collisions(
                                 if i >= j { continue; }
                                 if !pairs_checked.insert((i, j)) { continue; }
                                 
-                                let b1 = &bodies[i];
-                                let b2 = &bodies[j];
-                                if !b1.alive || !b2.alive { continue; }
+                                // Check distance using indices first to avoid borrowing bodies
+                                let dist = (bodies[i].pos - bodies[j].pos).length();
+                                let collision_threshold = bodies[i].radius + bodies[j].radius;
 
-                                let dist = (b1.pos - b2.pos).length();
+                                // 1. Conjunction Highlight
+                                if dist < CONJUNCTION_THRESHOLD {
+                                    to_highlight.insert(i);
+                                    to_highlight.insert(j);
+                                }
 
-                                // 1. Satellite Fragmentation (Kessler Cascade)
-                                let b1 = &bodies[i];
-                                let b2 = &bodies[j];
+                                // 2. Physical Collision
+                                let is_sat_1 = matches!(bodies[i].body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
+                                let is_sat_2 = matches!(bodies[j].body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
                                 
-                                let is_sat_1 = matches!(b1.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
-                                let is_sat_2 = matches!(b2.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
-                                
-                                // Special case for Zarya (Secondary Cascade)
-                                if (b1.body_type == BodyType::Zarya || b2.body_type == BodyType::Zarya) && dist < (b1.body_type.visual_radius() as f64 + b2.body_type.visual_radius() as f64) {
+                                if (bodies[i].body_type == BodyType::Zarya || bodies[j].body_type == BodyType::Zarya) && dist < collision_threshold {
                                     if main_collision_done {
-                                        let pos = if b1.body_type == BodyType::Zarya { b1.pos } else { b2.pos };
-                                        let vel = if b1.body_type == BodyType::Zarya { b1.vel } else { b2.vel };
-                                        let id = if b1.body_type == BodyType::Zarya { b1.id } else { b2.id };
+                                        let (b_idx, o_idx) = if bodies[i].body_type == BodyType::Zarya { (i, j) } else { (j, i) };
+                                        let pos = bodies[b_idx].pos;
+                                        let vel = bodies[b_idx].vel;
+                                        let id = bodies[b_idx].id;
 
-                                        let orange_debris = DebrisGen::generate_cloud(id, pos, vel, 200, sim_time, [1.0, 0.4, 0.0, 1.0]);
+                                        let orange_debris = DebrisGen::generate_cloud(id, pos, vel, bodies[b_idx].mass, 200, sim_time, [1.0, 0.4, 0.0, 1.0]);
                                         new_debris.extend(orange_debris);
-                                        events.push(CollisionEvent { time: sim_time, body_a_name: b1.name.clone(), body_b_name: b2.name.clone(), pos, new_debris_count: 200, is_primary: false });
-                                        to_kill.insert(b1.id); to_kill.insert(b2.id);
+                                        events.push(CollisionEvent { 
+                                            time: sim_time, 
+                                            body_a_name: bodies[b_idx].name.clone(), 
+                                            body_b_name: bodies[o_idx].name.clone(), 
+                                            pos, 
+                                            new_debris_count: 200, 
+                                            is_primary: false 
+                                        });
+                                        to_kill.insert(bodies[i].id); to_kill.insert(bodies[j].id);
                                     }
                                 }
-                                // General Satellite-Debris or Satellite-Satellite Fragmentation
-                                else if (is_sat_1 || is_sat_2) && dist < COLLISION_DISTANCE {
-                                    let pos = (b1.pos + b2.pos) * 0.5;
+                                else if (is_sat_1 || is_sat_2) && dist < collision_threshold {
+                                    let pos = (bodies[i].pos + bodies[j].pos) * 0.5;
                                     
-                                    // Fragment body 1 if it's a satellite
                                     if is_sat_1 {
-                                        let name = format!("{} FRAG", b1.name);
-                                        let pieces = DebrisGen::generate_cloud(b1.id, b1.pos, b1.vel, 60, sim_time, [1.0, 0.8, 0.0, 0.9]); // Golden
+                                        let name = format!("{} FRAG", bodies[i].name);
+                                        let pieces = DebrisGen::generate_cloud(bodies[i].id, bodies[i].pos, bodies[i].vel, bodies[i].mass, 60, sim_time, [1.0, 0.8, 0.0, 0.9]);
                                         for mut p in pieces { p.name = name.clone(); new_debris.push(p); }
-                                        to_kill.insert(b1.id);
+                                        to_kill.insert(bodies[i].id);
                                     }
-                                    // Fragment body 2 if it's a satellite
                                     if is_sat_2 {
-                                        let name = format!("{} FRAG", b2.name);
-                                        let pieces = DebrisGen::generate_cloud(b2.id, b2.pos, b2.vel, 60, sim_time, [1.0, 0.8, 0.0, 0.9]); // Golden
+                                        let name = format!("{} FRAG", bodies[j].name);
+                                        let pieces = DebrisGen::generate_cloud(bodies[j].id, bodies[j].pos, bodies[j].vel, bodies[j].mass, 60, sim_time, [1.0, 0.8, 0.0, 0.9]);
                                         for mut p in pieces { p.name = name.clone(); new_debris.push(p); }
-                                        to_kill.insert(b2.id);
+                                        to_kill.insert(bodies[j].id);
                                     }
 
                                     events.push(CollisionEvent {
                                         time: sim_time,
-                                        body_a_name: b1.name.clone(),
-                                        body_b_name: b2.name.clone(),
+                                        body_a_name: bodies[i].name.clone(),
+                                        body_b_name: bodies[j].name.clone(),
                                         pos,
                                         new_debris_count: 120,
                                         is_primary: false,
-                                    });
-                                    println!("CASCADE COLLISION: {} hit {} -> Fragmented!", b1.name, b2.name);
+                                     });
+                                     println!("PHYSICAL COLLISION: {} hit {} at {:.3}km distance!", bodies[i].name, bodies[j].name, dist);
                                 }
-                                // 2. Debris Interactions (Elastic-ish Bounce)
-                                else if dist < INTERACTION_DISTANCE {
-                                    bodies[i].highlight = 1.0;
-                                    bodies[j].highlight = 1.0;
+                                // 3. Debris Interactions
+                                 else if dist < INTERACTION_DISTANCE {
                                     let n = (bodies[i].pos - bodies[j].pos).normalize();
                                     let relative_vel = bodies[i].vel - bodies[j].vel;
                                     let v_normal = relative_vel.dot(n);
                                     if v_normal < 0.0 {
-                                        let impulse = n * (-1.4 * v_normal);
-                                        bodies[i].vel += impulse * 0.5;
-                                        bodies[j].vel -= impulse * 0.5;
+                                         // Realistic 1D inelastic collision with mass weighting
+                                         let m1 = bodies[i].mass;
+                                         let m2 = bodies[j].mass;
+                                         let restitution = 0.6; 
+                                         let j_impulse = -(1.0 + restitution) * v_normal / (1.0/m1 + 1.0/m2);
+                                         
+                                         let impulse_vec = n * j_impulse;
+                                         bodies[i].vel += impulse_vec / m1;
+                                         bodies[j].vel -= impulse_vec / m2;
                                     }
                                 }
                             }
@@ -128,6 +138,11 @@ pub fn check_collisions(
                 }
             }
         }
+    }
+
+    // Apply highlights
+    for idx in to_highlight {
+        bodies[idx].highlight = 1.0;
     }
 
     for id in &to_kill {

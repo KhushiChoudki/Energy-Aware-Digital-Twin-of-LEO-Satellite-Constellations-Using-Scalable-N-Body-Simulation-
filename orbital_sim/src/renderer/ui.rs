@@ -92,28 +92,45 @@ pub fn draw_hud(
                 egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                     let query = search_query.to_lowercase();
                     let mut found = 0;
+                    let mut debris_groups: std::collections::HashMap<String, (usize, u64, glam::DVec3)> = std::collections::HashMap::new();
+
                     for body in &sim.bodies {
-                        if body.name.to_lowercase().contains(&query) {
+                        if !body.alive { continue; }
+                        if !body.name.to_lowercase().contains(&query) { continue; }
+
+                        let is_sat = matches!(body.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
+                        
+                        if is_sat {
                             let color = body.effective_color();
-                            let egui_color = Color32::from_rgb(
+                            let egui_color = Color32::from_rgba_unmultiplied(
                                 (color[0] * 255.0) as u8,
                                 (color[1] * 255.0) as u8,
                                 (color[2] * 255.0) as u8,
+                                255,
                             );
-                            
-                            let type_str = match body.body_type {
-                                BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya => "🛰️ SAT",
-                                _ => "🧱 DEB",
-                            };
 
-                            if ui.button(egui::RichText::new(format!("{} | {}", type_str, body.name)).color(egui_color)).clicked() {
+                            if ui.button(egui::RichText::new(format!("🛰️ SAT | {}", body.name)).color(egui_color)).clicked() {
                                 *selected_body = Some(body.id);
                                 camera.focus_on(body.pos);
                             }
                             found += 1;
-                            if found >= 10 { break; }
+                        } else {
+                            let entry = debris_groups.entry(body.name.clone()).or_insert((0, body.id, body.pos));
+                            entry.0 += 1;
                         }
+                        
+                        if found >= 20 { break; }
                     }
+
+                    // Display Grouped Debris
+                    for (name, (count, id, pos)) in debris_groups {
+                        if ui.button(egui::RichText::new(format!("🧱 DEB | {} (x{})", name, count)).color(Color32::GOLD)).clicked() {
+                            *selected_body = Some(id);
+                            camera.focus_on(pos);
+                        }
+                        found += 1;
+                    }
+
                     if found == 0 {
                         ui.label("No matches found.");
                     }
@@ -127,11 +144,9 @@ pub fn draw_hud(
         .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(180)))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
-                legend_item(ui, "ACTIVE ASSETS (CYAN)", Color32::from_rgb(0, 200, 255), true);
-                legend_item(ui, "COSMOS / RUSSS", Color32::RED, true);
-                legend_item(ui, "IRIDIUM-33", Color32::YELLOW, true);
+                legend_item(ui, "ACTIVE ASSETS (CYAN)", Color32::from_rgb(0, 255, 255), true);
+                legend_item(ui, "ORBITAL DEBRIS", Color32::from_rgb(255, 200, 0), false);
                 legend_item(ui, "PRIMARY DEBRIS (PINK)", Color32::from_rgb(255, 80, 200), false);
-                legend_item(ui, "CASCADE DEBRIS (GOLD)", Color32::from_rgb(255, 200, 0), false);
                 legend_item(ui, "PRE-EXISTING DEBRIS", Color32::GRAY, false);
                 ui.separator();
                 ui.label(egui::RichText::new("• Dots: Moving Assets").size(10.0));
@@ -139,16 +154,45 @@ pub fn draw_hud(
             });
         });
 
-    // ─── COLLISION DATA (Top Right) ─────────────────────────────────────────
+    // ─── EVENT ALERT (Top Right) ──────────────────────────────────────────
     if let Some(ev) = sim.collision_events.last() {
         Window::new("⚠ EVENT ALERT")
             .anchor(Align2::RIGHT_TOP, [-20.0, 20.0])
             .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_rgba_unmultiplied(100, 0, 0, 180)))
             .show(ctx, |ui| {
                 ui.heading("PRIMARY COLLISION DETECTED");
-                ui.label(format!("Time of Impact: {:.1} s", ev.time));
-                ui.label(format!("Primary Objects: {} + {}", ev.body_a_name, ev.body_b_name));
+                ui.label(format!("Primary: {} + {}", ev.body_a_name, ev.body_b_name));
                 ui.label(format!("Tracked Fragments: {}", ev.new_debris_count));
+            });
+    }
+
+    // ─── AI COLLISION PREDICTION (Top Right) ────────────────────────────────
+    if !sim.predictor.risk_map.is_empty() {
+        Window::new("🤖 AI COLLISION PREDICTOR")
+            .anchor(Align2::RIGHT_TOP, [-20.0, 180.0])
+            .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
+            .show(ctx, |ui| {
+                ui.label(egui::RichText::new("GNN PREDICTIVE RISK").strong().color(Color32::from_rgb(255, 100, 100)));
+                ui.separator();
+                
+                let mut risks: Vec<_> = sim.predictor.risk_map.iter().collect();
+                risks.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+                
+                for (&(id1, id2), &risk) in risks.iter().take(5) {
+                    let b1 = sim.bodies.iter().find(|b| b.id == id1);
+                    let b2 = sim.bodies.iter().find(|b| b.id == id2);
+                    
+                    if let (Some(s1), Some(s2)) = (b1, b2) {
+                        ui.horizontal(|ui| {
+                            let risk_pct = (risk * 100.0) as i32;
+                            ui.label(egui::RichText::new(format!("{}%", risk_pct)).strong().color(Color32::RED));
+                            if ui.button(format!("{} ↔ {}", s1.name, s2.name)).clicked() {
+                                *selected_body = Some(s1.id);
+                                camera.focus_on(s1.pos);
+                            }
+                        });
+                    }
+                }
             });
     }
 
@@ -166,6 +210,16 @@ pub fn draw_hud(
                         (color[2] * 255.0) as u8,
                     );
                     ui.label(egui::RichText::new(&body.name).strong().color(egui_color));
+                    
+                    let type_str = match body.body_type {
+                        BodyType::LiveSatellite => "🛰️ LIVE ASSET",
+                        BodyType::Zarya => "🏰 STATION MODULE",
+                        BodyType::Russs | BodyType::Iridium33 => "🚀 PRIMARY SATELLITE",
+                        BodyType::CollisionDebris => "🧱 FRAGMENTED DEBRIS",
+                        BodyType::PreExistingDebris => "⚙️ LEGACY DEBRIS",
+                    };
+                    ui.label(egui::RichText::new(type_str).size(12.0).italics().color(Color32::LIGHT_GRAY));
+
                     ui.separator();
                     ui.label(format!("Pos: [{:.1}, {:.1}, {:.1}] km", body.pos.x, body.pos.y, body.pos.z));
                     ui.label(format!("Vel: [{:.3}, {:.3}, {:.3}] km/s", body.vel.x, body.vel.y, body.vel.z));
@@ -180,7 +234,6 @@ pub fn draw_hud(
                         ui.label(format!("Inc: {:.4}°", tle.inclination.to_degrees()));
                         ui.label(format!("Ecc: {:.6}", tle.eccentricity));
                     } else if body.body_type == BodyType::Russs || body.body_type == BodyType::Iridium33 {
-                        // Main satellites also have TLEs in SimState
                         let tle = if body.body_type == BodyType::Russs { &sim.russs_tle } else { &sim.iridium_tle };
                         ui.separator();
                         ui.label(egui::RichText::new("TLE DATA").strong().color(Color32::LIGHT_GREEN));
@@ -188,15 +241,51 @@ pub fn draw_hud(
                         ui.label(egui::RichText::new(&tle.raw_line2).monospace().size(10.0));
                     }
                     
-                    if ui.button("🎯 FOCUS CAMERA").clicked() {
-                        camera.focus_on(body.pos);
-                    }
                     if ui.button("❌ DESELECT").clicked() {
                         *selected_body = None;
                     }
                 });
+
+            // ─── RED TRACKER ARROW ───
+            draw_red_tracker(ctx, body.pos, camera, _screen_size);
         }
     }
+}
+
+fn draw_red_tracker(ctx: &Context, body_pos: glam::DVec3, camera: &Camera, screen_size: (u32, u32)) {
+    let vp = camera.view_proj();
+    let world_pos = glam::Vec3::new(body_pos.x as f32 * 0.01, body_pos.y as f32 * 0.01, body_pos.z as f32 * 0.01);
+    let ndc = vp.project_point3(world_pos);
+    
+    if ndc.z < -1.0 || ndc.z > 1.0 { return; } 
+
+    // Convert NDC to logical pixels (taking High-DPI scale into account)
+    let ppp = ctx.pixels_per_point();
+    let screen_x = (ndc.x + 1.0) * 0.5 * (screen_size.0 as f32 / ppp);
+    let screen_y = (1.0 - ndc.y) * 0.5 * (screen_size.1 as f32 / ppp);
+    
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("tracker")));
+    let target_center = egui::pos2(screen_x, screen_y);
+    
+    // THE ARROW TIP: Now pointing EXACTLY at the center of the body
+    let arrow_tip = target_center; 
+    let arrow_top = arrow_tip - egui::vec2(0.0, 60.0);
+    
+    // Draw Animated Arrow
+    let time = ctx.input(|i| i.time);
+    let bounce = (time * 5.0).sin() as f32 * 5.0;
+    let anim_tip = arrow_tip - egui::vec2(0.0, 5.0 + bounce.abs());
+    let anim_top = arrow_top - egui::vec2(0.0, bounce.abs());
+
+    painter.line_segment([anim_top, anim_tip], egui::Stroke::new(3.0, Color32::RED));
+    
+    // Arrow Head
+    painter.line_segment([anim_tip, anim_tip + egui::vec2(-10.0, -10.0)], egui::Stroke::new(3.0, Color32::RED));
+    painter.line_segment([anim_tip, anim_tip + egui::vec2(10.0, -10.0)], egui::Stroke::new(3.0, Color32::RED));
+    
+    // Targeting Ring (Centered exactly on body)
+    painter.circle_stroke(target_center, 30.0, egui::Stroke::new(2.0, Color32::RED));
+    painter.circle_stroke(target_center, 2.0, egui::Stroke::new(2.0, Color32::RED)); // Center dot
 }
 
 fn legend_item(ui: &mut egui::Ui, name: &str, color: Color32, is_path: bool) {
