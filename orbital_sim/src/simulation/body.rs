@@ -36,7 +36,7 @@ impl BodyType {
             BodyType::Russs => 200.0,         
             BodyType::Iridium33 => 200.0,     
             BodyType::CollisionDebris => 60.0, 
-            BodyType::LiveSatellite => 150.0,
+            BodyType::LiveSatellite => 300.0, // Increased so it doesn't feel like it vanishes after thrust
         }
     }
 
