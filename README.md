@@ -1,9 +1,12 @@
 # Energy-Aware Digital Twin of LEO Satellite Constellations
 
+![Orbital Simulation](https://img.shields.io/badge/Status-Development-orange)
+![Rust](https://img.shields.io/badge/Language-Rust-red)
+![WGPU](https://img.shields.io/badge/Graphics-WGPU-blue)
+
 A high-performance, industry-standard digital twin for Low Earth Orbit (LEO) satellite constellations. This project couples scalable N-body physics simulation (Barnes-Hut algorithm), real-time Graph Neural Network (GNN) collision prediction, and Reinforcement Learning (RL) autonomous evasion maneuvers with dynamic energy and network uptime tracking.
 
-![System Overview](assets/ui_screenshot_1.png)
-*(Please replace `assets/ui_screenshot_1.png` with a screenshot of the main UI interface)*
+<img width="1593" height="876" alt="System Overview" src="https://github.com/user-attachments/assets/37deed48-3781-4401-afb0-5f5feaea4fa1" />
 
 ## Table of Contents
 - [Overview](#overview)
@@ -22,8 +25,7 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 2. **Predictive AI**: A GNN that continuously maps collision risks based on spatial proximity and velocity.
 3. **Prescriptive Autonomy**: An RL Agent capable of performing autonomous Delta-V maneuvers to evade threats while minimizing battery consumption.
 
-![Collision Avoidance View](assets/ui_screenshot_2.png)
-*(Please replace `assets/ui_screenshot_2.png` with a screenshot of the satellite executing a yellow thrust maneuver)*
+<img width="1592" height="900" alt="Collision Avoidance View" src="https://github.com/user-attachments/assets/b1c34296-cf78-4f59-8a3b-9dae13041a7e" />
 
 ## Key Features
 
@@ -37,7 +39,7 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 
 The architecture relies on a highly concurrent Rust backend that feeds physics state data into the rendering pipeline while synchronously updating the GNN feature graphs.
 
-![System Architecture Diagram](assets/architecture.png)
+<img width="890" height="2527" alt="System Architecture Diagram" src="https://github.com/user-attachments/assets/6089fd75-6723-49b9-9857-2063d4a4fb1a" />
 
 ## Simulation Mechanics & Physics
 
@@ -61,7 +63,7 @@ The AI dashboard allows users to toggle between **Manual Mode** (where the syste
 
 Maneuvers are not free. Firing thrusters or transmitting data while in LOS of ground stations heavily depletes battery reserves. If a satellite triggers an evasion maneuver while at low power, it risks complete system failure.
 
-![Energy and Uptime Graph](assets/energy_graph.png)
+<img width="2958" height="1464" alt="Energy and Uptime Graph" src="https://github.com/user-attachments/assets/c575df93-6450-48eb-b567-7be0db50bd1e" />
 
 **Analytical Insights:**
 - **Green Bars**: Successful network transmission windows (LOS established, battery sufficient).
@@ -93,5 +95,5 @@ cargo run --release
 - **Khushi Choudki**, Dept of ISE, RV College of Engineering (khushichoudki.is23@rvce.edu.in)
 - **Keerthi M**, Dept of ISE, RV College of Engineering (keerthim.is23@rvce.edu.in)
 - **Tejas L**, Dept of ASE, RV College of Engineering (tejasl.ae23@rvce.edu.in)
-- **Akula Uday Kiran**, Dept of ASE, RV College of Engineering (akulauday.ae23@rvce.edu.in)
-- **Dr. Rachana S Akki**, Dept of EEE, RV College of Engineering
+- **Akula Uday Kiran**, Dept of ASE, RV College of Engineering (audaykiran.ae23@rvce.edu.in)
+- **Dr. Rachana S Akki**, Dept of EEE, RV College of Engineering (rachana.akki@rvce.edu.in)
