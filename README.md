@@ -24,9 +24,10 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 2. **Predictive AI**: A GNN that continuously maps collision risks based on spatial proximity and velocity.
 3. **Prescriptive Autonomy**: An RL Agent capable of performing autonomous Delta-V maneuvers to evade threats while minimizing battery consumption.
 
-![Collision Avoidance View](<img width="1592" height="900" alt="image" src="https://github.com/user-attachments/assets/b1c34296-cf78-4f59-8a3b-9dae13041a7e" />
+![Collision Avoidance View](<img width="1600" height="883" alt="image" src="https://github.com/user-attachments/assets/db43ece2-ee9d-4f98-b678-5a384fc5d303" />
+
 )
-*(Please replace `assets/ui_screenshot_2.png` with a screenshot of the satellite executing a yellow thrust maneuver)*
+
 
 ## Key Features
 
@@ -40,7 +41,8 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 
 The architecture relies on a highly concurrent Rust backend that feeds physics state data into the rendering pipeline while synchronously updating the GNN feature graphs.
 
-![System Architecture Diagram](<img width="890" height="2527" alt="image" src="https://github.com/user-attachments/assets/6089fd75-6723-49b9-9857-2063d4a4fb1a" />
+![System Architecture Diagram](<img width="890" height="2527" alt="image" src="https://github.com/user-attachments/assets/881da91e-b301-4aed-b2c3-6859e7e09e24" />
+
 )
 
 ## Simulation Mechanics & Physics
@@ -65,7 +67,8 @@ The AI dashboard allows users to toggle between **Manual Mode** (where the syste
 
 Maneuvers are not free. Firing thrusters or transmitting data while in LOS of ground stations heavily depletes battery reserves. If a satellite triggers an evasion maneuver while at low power, it risks complete system failure.
 
-![Energy and Uptime Graph](<img width="2958" height="1464" alt="image" src="https://github.com/user-attachments/assets/c575df93-6450-48eb-b567-7be0db50bd1e" />
+![Energy and Uptime Graph](<img width="2958" height="1464" alt="image" src="https://github.com/user-attachments/assets/b848a4d0-cf06-4c90-aa63-ebd2ee9a618e" />
+
 )
 
 **Analytical Insights:**
