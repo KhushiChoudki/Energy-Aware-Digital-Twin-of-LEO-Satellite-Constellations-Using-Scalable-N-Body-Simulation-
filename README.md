@@ -11,7 +11,6 @@ A high-performance, industry-standard digital twin for Low Earth Orbit (LEO) sat
 ## Table of Contents
 - [Overview](#overview)
 - [Key Features](#key-features)
-- [System Architecture](#system-architecture)
 - [Technology Stack](#technology-stack)
 - [Simulation Mechanics & Physics](#simulation-mechanics--physics)
 - [Reinforcement Learning Auto-Evasion](#reinforcement-learning-auto-evasion)
@@ -43,14 +42,6 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 - **Graphics API**: WGPU (WebGPU implementation for Rust), providing cross-platform GPU access.
 - **UI Toolkit**: `egui` for immediate-mode GUI, enabling highly responsive and customizable HUD elements.
 - **Machine Learning**: Custom integrations for Graph Neural Networks and Reinforcement Learning algorithms.
-
-## System Architecture
-
-The architecture relies on a highly concurrent Rust backend that feeds physics state data into the rendering pipeline while synchronously updating the GNN feature graphs. The pipeline is designed for minimal latency, ensuring smooth frame rates even with tens of thousands of tracked objects.
-
-<div align="center">
-  <img height="400" alt="System Architecture Diagram" src="https://github.com/user-attachments/assets/6089fd75-6723-49b9-9857-2063d4a4fb1a" />
-</div>
 
 ## Simulation Mechanics & Physics
 
