@@ -84,6 +84,10 @@ impl Camera {
         self.distance = 50.0;
     }
 
+    pub fn track(&mut self, pos: DVec3) {
+        self.target = Vec3::new(pos.x as f32 * 0.01, pos.y as f32 * 0.01, pos.z as f32 * 0.01);
+    }
+
     pub fn reset(&mut self) {
         self.target = Vec3::ZERO;
         self.distance = 250.0;

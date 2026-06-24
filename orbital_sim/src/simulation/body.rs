@@ -126,8 +126,8 @@ impl Body {
 
     pub fn effective_color(&self) -> [f32; 4] {
         if self.thrust_flash > 0.0 {
-            // Intense orange/yellow for thrust visual feedback
-            return [1.0, 0.6, 0.0, 1.0];
+            // Intense pure yellow for thrust visual feedback
+            return [1.0, 1.0, 0.0, 1.0];
         }
         let base = self.color_override.unwrap_or_else(|| self.body_type.default_color());
         let h = self.highlight;

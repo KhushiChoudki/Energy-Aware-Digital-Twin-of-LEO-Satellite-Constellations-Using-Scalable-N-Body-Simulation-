@@ -179,15 +179,27 @@ impl<'a> GpuState<'a> {
         }
     }
 
-    pub fn update_bodies(&mut self, bodies: &[Body], show_debris: bool) {
+    pub fn update_bodies(&mut self, bodies: &[Body], show_debris: bool, selected_body: Option<u64>) {
         let instances: Vec<BodyInstance> = bodies.iter()
             .filter(|b| b.alive)
             .filter(|b| show_debris || matches!(b.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya))
             .take(MAX_DEBRIS + 5) // Safety cap
             .map(|b| BodyInstance {
                 pos: [b.pos.x as f32 * SCALE, b.pos.y as f32 * SCALE, b.pos.z as f32 * SCALE],
-                radius: b.body_type.visual_radius() * SCALE,
-                color: b.effective_color(),
+                radius: if b.thrust_flash > 0.0 {
+                    b.body_type.visual_radius() * SCALE * 8.0 // Huge flare for thrust
+                } else if Some(b.id) == selected_body {
+                    b.body_type.visual_radius() * SCALE * 2.0 // Slightly larger red pointer for selection
+                } else {
+                    b.body_type.visual_radius() * SCALE
+                },
+                color: if b.thrust_flash > 0.0 {
+                    [1.0, 1.0, 0.0, 1.0] // Pure yellow for thrust
+                } else if Some(b.id) == selected_body {
+                    [1.0, 0.0, 0.0, 1.0] // Red pointer when selected
+                } else {
+                    b.effective_color()
+                },
                 kind: b.body_type.visual_kind(),
                 _pad: [0.0; 3],
             })

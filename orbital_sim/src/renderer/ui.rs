@@ -16,7 +16,7 @@ pub fn draw_hud(
 ) {
     // ─── MISSION DATA (Top Left) ────────────────────────────────────────────
     Window::new("📊 MISSION TELEMETRY")
-        .anchor(Align2::LEFT_TOP, [20.0, 20.0])
+        .default_pos([20.0, 20.0])
         .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(180)))
         .show(ctx, |ui| {
             ui.label(egui::RichText::new("ORBITAL COLLISION SCENARIO").strong().color(Color32::LIGHT_BLUE));
@@ -93,7 +93,7 @@ pub fn draw_hud(
 
     // ─── SATELLITE SEARCH (Top Center) ──────────────────────────────────────
     Window::new("🛰️ SATELLITE SEARCH")
-        .anchor(Align2::CENTER_TOP, [0.0, 20.0])
+        .default_pos([_screen_size.0 as f32 / 2.0 - 150.0, 20.0])
         .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -154,7 +154,7 @@ pub fn draw_hud(
 
     // ─── MISSION KEY / LEGEND (Bottom Left) ─────────────────────────────────
     Window::new("🗺️ MISSION KEY")
-        .anchor(Align2::LEFT_BOTTOM, [20.0, -20.0])
+        .default_pos([20.0, _screen_size.1 as f32 - 200.0])
         .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(180)))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
@@ -171,7 +171,7 @@ pub fn draw_hud(
     // ─── EVENT ALERT (Top Right) ──────────────────────────────────────────
     if let Some(ev) = sim.collision_events.last() {
         Window::new("⚠ EVENT ALERT")
-            .anchor(Align2::RIGHT_TOP, [-20.0, 20.0])
+            .default_pos([_screen_size.0 as f32 - 300.0, 20.0])
             .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_rgba_unmultiplied(100, 0, 0, 180)))
             .show(ctx, |ui| {
                 ui.heading("PRIMARY COLLISION DETECTED");
@@ -183,7 +183,7 @@ pub fn draw_hud(
     // ─── AI COLLISION PREDICTION (Top Right) ────────────────────────────────
     if !sim.predictor.risk_map.is_empty() {
         Window::new("🤖 AI COLLISION PREDICTOR")
-            .anchor(Align2::LEFT_TOP, [20.0, 300.0])
+            .default_pos([20.0, 300.0])
             .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
             .show(ctx, |ui| {
                 ui.label(egui::RichText::new("GNN PREDICTIVE RISK").strong().color(Color32::from_rgb(255, 100, 100)));
@@ -211,7 +211,7 @@ pub fn draw_hud(
 
         // ─── RL MANEUVERING AGENT (Right) ────────────────────────────────
         Window::new("🚀 RL MANEUVERING AGENT")
-            .anchor(Align2::RIGHT_TOP, [-20.0, 300.0])
+            .default_pos([_screen_size.0 as f32 - 350.0, 300.0])
             .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
             .show(ctx, |ui| {
                 ui.label(egui::RichText::new("RECOMMENDED AVOIDANCE BURNS").strong().color(Color32::from_rgb(100, 255, 100)));
@@ -291,7 +291,7 @@ pub fn draw_hud(
                     if let Some(b) = sim.bodies.iter_mut().find(|b| b.id == id) {
                         b.vel += execute_burn_dv;
                         b.tle = None; // Detach from fixed TLE orbit so physics applies!
-                        b.thrust_flash = 2.0; // Visual thrust feedback for 2 seconds
+                        b.thrust_flash = 5.0; // Visual thrust feedback for 5 seconds
                     }
                 }
             });
@@ -299,7 +299,7 @@ pub fn draw_hud(
 
     // ─── NETWORK & ENERGY MODE (Top Right) ────────────────────────────────
     Window::new("🌐 NETWORK OVERVIEW")
-        .anchor(Align2::RIGHT_TOP, [-20.0, 150.0]) // Below Event Alert
+        .default_pos([_screen_size.0 as f32 - 300.0, 150.0])
         .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
         .show(ctx, |ui| {
             ui.label(egui::RichText::new("COMMUNICATION & POWER").strong().color(Color32::LIGHT_GREEN));
@@ -321,7 +321,7 @@ pub fn draw_hud(
     if let Some(id) = *selected_body {
         if let Some(body) = sim.bodies.iter().find(|b| b.id == id) {
             Window::new("🛰️ SELECTED OBJECT")
-                .anchor(Align2::RIGHT_BOTTOM, [-20.0, -20.0])
+                .default_pos([_screen_size.0 as f32 - 350.0, _screen_size.1 as f32 - 200.0])
                 .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
                 .show(ctx, |ui| {
                     let color = body.effective_color();

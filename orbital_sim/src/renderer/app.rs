@@ -221,9 +221,9 @@ pub fn run() -> Result<()> {
                                             selected_body = Some(id);
                                             if let Some(b) = sim.bodies.iter_mut().find(|b| b.id == id) {
                                                 println!("Selection Success: {} (ID: {}) dist={:.1}px", b.name, b.id, best_score);
-                                                b.highlight = 1.0;
                                             }
                                         } else {
+                                            selected_body = None;
                                             println!("Selection Failed: Click at {:?} did not hit any body", pos);
                                         }
                                     }
@@ -260,7 +260,7 @@ pub fn run() -> Result<()> {
                         // ─── FOLLOW CAMERA LOGIC ───
                         if let Some(id) = selected_body {
                             if let Some(body) = sim.bodies.iter().find(|b| b.id == id && b.alive) {
-                                camera.focus_on(body.pos);
+                                camera.track(body.pos);
                             } else {
                                 // If body is gone (fragmented), clear selection
                                 selected_body = None;
@@ -272,7 +272,7 @@ pub fn run() -> Result<()> {
 
                         let aspect = size.width as f32 / size.height as f32;
                         gpu.update_uniforms(camera.view_proj(), sim.time as f32, sim.flash_intensity, aspect, camera.distance);
-                        gpu.update_bodies(&sim.bodies, sim.show_debris);
+                        gpu.update_bodies(&sim.bodies, sim.show_debris, selected_body);
                         gpu.update_trails(&sim.bodies, sim.show_debris);
 
                         let frame = match gpu.surface.get_current_texture() {
