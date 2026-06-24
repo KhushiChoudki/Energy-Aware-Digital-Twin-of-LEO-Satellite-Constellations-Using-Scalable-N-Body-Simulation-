@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 use crate::renderer::earth::EarthMesh;
-use crate::simulation::body::Body;
+use crate::simulation::body::{Body, BodyType};
 use crate::simulation::state::{SimState, MAX_DEBRIS};
 
 pub const SCALE: f32 = 1.0 / 100.0; 
@@ -179,9 +179,10 @@ impl<'a> GpuState<'a> {
         }
     }
 
-    pub fn update_bodies(&mut self, bodies: &[Body]) {
+    pub fn update_bodies(&mut self, bodies: &[Body], show_debris: bool) {
         let instances: Vec<BodyInstance> = bodies.iter()
             .filter(|b| b.alive)
+            .filter(|b| show_debris || matches!(b.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya))
             .take(MAX_DEBRIS + 5) // Safety cap
             .map(|b| BodyInstance {
                 pos: [b.pos.x as f32 * SCALE, b.pos.y as f32 * SCALE, b.pos.z as f32 * SCALE],
@@ -197,9 +198,12 @@ impl<'a> GpuState<'a> {
         }
     }
 
-    pub fn update_trails(&mut self, bodies: &[Body]) {
+    pub fn update_trails(&mut self, bodies: &[Body], show_debris: bool) {
         let mut verts: Vec<f32> = Vec::with_capacity(1_000_000);
-        for body in bodies.iter().filter(|b| b.alive).take(MAX_DEBRIS + 5) {
+        for body in bodies.iter()
+            .filter(|b| b.alive)
+            .filter(|b| show_debris || matches!(b.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya))
+            .take(MAX_DEBRIS + 5) {
             if body.trail.len() < 2 { continue; }
             let c = body.effective_color();
             let n = body.trail.len();

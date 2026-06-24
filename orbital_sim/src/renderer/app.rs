@@ -38,85 +38,92 @@ const EARTH_TEXTURE: &[u8] = include_bytes!("../../data/earth_hd.png");
 
 pub fn run() -> Result<()> {
     let zarya_ephem = parse_zarya_ephemeris(ZARYA_EPHEM);
-    let russs_tle = load_tle(RUSSS_TLE);
-    let iridium_tle = load_tle(IRIDIUM_TLE);
     let debris_points = parse_debris_aer(DEBRIS_AER, &zarya_ephem);
 
-    // Load Debris TLEs
-    let mut debris_tles = Vec::new();
+    // 1. Load Consolidated TLEs
+    println!("Loading consolidated TLE data...");
+    let satellites_content = std::fs::read_to_string("data/satellites.txt")
+        .unwrap_or_else(|_| "".to_string());
+    let debris_content = std::fs::read_to_string("data/debris.txt")
+        .unwrap_or_else(|_| "".to_string());
+
+    let all_satellite_tles = crate::data::tle_parser::parse_many(&satellites_content);
+    let debris_tles = crate::data::tle_parser::parse_many(&debris_content);
+
+    // 2. Identify Primary Scenario Satellites
+    let russs_tle = all_satellite_tles.iter()
+        .find(|t| t.name.contains("22675") || t.name.contains("2251"))
+        .cloned()
+        .unwrap_or_else(|| load_tle(RUSSS_TLE));
     
-    // 1. Cosmos 2251 Debris
-    if let Ok(cosmos_content) = std::fs::read_to_string("../COSMOS 2251.txt") {
-        debris_tles.extend(crate::data::tle_parser::parse_many(&cosmos_content));
-    }
-    
-    // 2. Iridium 33 Debris folder
-    let iridium_dir = "../iridium33/debris_folder";
-    if let Ok(entries) = std::fs::read_dir(iridium_dir) {
-        for entry in entries.flatten() {
-            if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                let mut tles = crate::data::tle_parser::parse_many(&content);
-                // The files might not have names, let's fix them if needed
-                for tle in tles.iter_mut() {
-                    if tle.name == "UNKNOWN" {
-                        tle.name = format!("IRIDIUM DEB-{}", entry.file_name().to_string_lossy());
-                    }
-                }
-                debris_tles.extend(tles);
-            }
-        }
-    }
+    let iridium_tle = all_satellite_tles.iter()
+        .find(|t| t.name.contains("24946") || t.name.contains("33"))
+        .cloned()
+        .unwrap_or_else(|| load_tle(IRIDIUM_TLE));
 
     let mut sim = SimState::new(zarya_ephem, debris_points, russs_tle, iridium_tle, debris_tles);
-    sim.jd_start = 2461162.5; // May 2, 2026 (Approx)
-    
-    // ... later in the file after loading live sats ...
-    // Actually, I'll call it right after live sats are loaded in the real file structure.
+    sim.jd_start = 2461162.5; // May 2, 2026
 
-    // 3. Live LEO Satellites
-    if let Ok(active_content) = std::fs::read_to_string("active_sats.txt") {
-        let active_tles = crate::data::tle_parser::parse_many(&active_content);
-        println!("Loaded {} active satellites. Filtering for LEO...", active_tles.len());
+    // 3. Strategic Satellite Population (Targeting ~1000 total)
+    println!("Populating strategic satellite constellation...");
+    let mut live_sats = Vec::new();
+    let indian_keywords = [
+        "INSAT", "GSAT", "IRS ", "CARTOSAT", "RISAT", "OCEANSAT", 
+        "RESOURCESAT", "MICROSAT", "ASTROSAT", "SARAL", "MEGHA", 
+        "EOS", "CMS", "IRNSS", "NAVIC", "KALPANA", "EDUSAT", 
+        "HAMSAT", "ARYABHATA", "BHASKARA", "ROHINI", "APPLE", 
+        "YOUTHSAT", "SRMSAT", "JUGNU", "ANUSAT", "STUDSAT", 
+        "PRATHAM", "PISAT", "SATHYABAMASAT", "SWAYAM", "NIUSAT", 
+        "XPOSAT", "SINDHUNETRA", "ANAND", "KALAM", "AZADISAT"
+    ];
+
+    for tle in all_satellite_tles.iter() { 
+        if live_sats.len() >= 997 { break; }
         
-        let mut live_sats = Vec::new();
-        for tle in active_tles {
-            // Check semi-major axis first (much faster than propagation)
-            let a = tle.semi_major_axis();
-            let alt_avg = a - 6371.0;
-            
-            if alt_avg > 100.0 && alt_avg < 2000.0 {
-                // Propagate at JD_START
-                let dt_from_epoch = (sim.jd_start - tle.epoch_jd) * 86400.0;
-                let (pos, vel) = tle.propagate(dt_from_epoch);
-                
-                let mut body = Body::new(
-                    tle.name.clone(),
-                    BodyType::LiveSatellite,
-                    pos,
-                    vel,
-                    500.0,
-                    0.005,
-                    0.0,
-                );
-                
-                // Assign Unique Color based on name
-                let mut hash: u32 = 0;
-                for b in tle.name.bytes() {
-                    hash = hash.wrapping_mul(31).wrapping_add(b as u32);
-                }
-                let r = ((hash & 0xFF0000) >> 16) as f32 / 255.0;
-                let g = ((hash & 0x00FF00) >> 8) as f32 / 255.0;
-                let b = (hash & 0x0000FF) as f32 / 255.0;
-                body.color_override = Some([0.4 + r * 0.6, 0.4 + g * 0.6, 0.4 + b * 0.6, 1.0]);
-
-                body.tle = Some(tle);
-                live_sats.push(body);
-            }
+        // De-duplication: Skip primary scenario satellites
+        let name = tle.name.to_uppercase();
+        if name.contains("ZARYA") || name.contains("IRIDIUM 33") || name.contains("COSMOS 2251") || name.contains("22675") || name.contains("24903") {
+            continue;
         }
-        println!("Adding {} LEO satellites to simulation.", live_sats.len());
-        sim.bodies.extend(live_sats);
-        sim.export_tle_csv();
+
+        let is_indian = indian_keywords.iter().any(|&k| name.contains(k));
+        if !is_indian {
+            continue;
+        }
+
+        // Exclude imposters that accidentally matched substrings
+        if name.contains("LATINSAT") || name.contains("THEOS") || name.contains("BUGSAT") || 
+           name.contains("TIGRISAT") || name.contains("NEOSSAT") || name.contains("KAZEOSAT") || 
+           name.contains("OREOS") || name.contains("GALILEO") {
+            continue;
+        }
+
+        let a = tle.semi_major_axis();
+        let alt_avg = a - 6371.0;
+        
+        // Extended altitude to 50,000 km to capture MEO (NavIC) and GEO (INSAT/GSAT) satellites
+        if alt_avg > 100.0 && alt_avg < 50000.0 {
+            let dt_from_epoch = (sim.jd_start - tle.epoch_jd) * 86400.0;
+            let (pos, vel) = tle.propagate(dt_from_epoch);
+            
+            let mut body = Body::new(
+                tle.name.clone(),
+                BodyType::LiveSatellite,
+                pos,
+                vel,
+                500.0,
+                0.01,
+                0.0,
+            );
+            
+            body.color_override = None; // Use unified Cyan
+            body.tle = Some(tle.clone());
+            live_sats.push(body);
+        }
     }
+    println!("POC SUCCESS: {} strategic satellites added.", live_sats.len());
+    sim.bodies.extend(live_sats);
+    sim.export_tle_csv();
 
     let event_loop = EventLoop::new()?;
     let window = Arc::new(
@@ -169,10 +176,11 @@ pub fn run() -> Result<()> {
                         match state {
                             ElementState::Pressed => camera.on_mouse_press(btn),
                             ElementState::Released => {
+                                let click_pos = camera.last_mouse;
                                 camera.on_mouse_release(btn);
                                 if btn == 0 {
                                     // Left click released -> Try selection
-                                    if let Some(pos) = camera.last_mouse {
+                                    if let Some(pos) = click_pos {
                                         let size = window.inner_size();
                                         let mut best_id = None;
                                         let mut best_score = f32::MAX;
@@ -249,13 +257,23 @@ pub fn run() -> Result<()> {
 
                         sim.step(dt);
 
+                        // ─── FOLLOW CAMERA LOGIC ───
+                        if let Some(id) = selected_body {
+                            if let Some(body) = sim.bodies.iter().find(|b| b.id == id && b.alive) {
+                                camera.focus_on(body.pos);
+                            } else {
+                                // If body is gone (fragmented), clear selection
+                                selected_body = None;
+                            }
+                        }
+
                         let size = window.inner_size();
                         if size.width == 0 || size.height == 0 { return; }
 
                         let aspect = size.width as f32 / size.height as f32;
                         gpu.update_uniforms(camera.view_proj(), sim.time as f32, sim.flash_intensity, aspect, camera.distance);
-                        gpu.update_bodies(&sim.bodies);
-                        gpu.update_trails(&sim.bodies);
+                        gpu.update_bodies(&sim.bodies, sim.show_debris);
+                        gpu.update_trails(&sim.bodies, sim.show_debris);
 
                         let frame = match gpu.surface.get_current_texture() {
                             Ok(f) => f,
