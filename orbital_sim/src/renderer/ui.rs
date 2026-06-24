@@ -40,6 +40,11 @@ pub fn draw_hud(
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("🧱 ORBITAL DEBRIS:").strong().color(Color32::from_rgb(255, 200, 0)));
                 ui.label(format!("{}", deb_count));
+            });            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button(if sim.show_debris { "🚫 HIDE DEBRIS" } else { "✅ SHOW DEBRIS" }).clicked() {
+                    sim.show_debris = !sim.show_debris;
+                }
             });
 
             ui.separator();
@@ -55,7 +60,11 @@ pub fn draw_hud(
 
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("SIM SPEED:");
+                ui.label("SIM SPEED MULTIPLIER:");
+                ui.add(egui::Slider::new(&mut sim.sim_speed_multiplier, 0.0..=5.0).suffix("x"));
+            });
+            ui.horizontal(|ui| {
+                ui.label("TIME STEP:");
                 ui.add(egui::Slider::new(&mut sim.time_scale, 0.0..=1000.0).suffix("x"));
             });
             
@@ -169,7 +178,7 @@ pub fn draw_hud(
     // ─── AI COLLISION PREDICTION (Top Right) ────────────────────────────────
     if !sim.predictor.risk_map.is_empty() {
         Window::new("🤖 AI COLLISION PREDICTOR")
-            .anchor(Align2::RIGHT_TOP, [-20.0, 180.0])
+            .anchor(Align2::LEFT_TOP, [20.0, 300.0])
             .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
             .show(ctx, |ui| {
                 ui.label(egui::RichText::new("GNN PREDICTIVE RISK").strong().color(Color32::from_rgb(255, 100, 100)));
@@ -194,7 +203,106 @@ pub fn draw_hud(
                     }
                 }
             });
+
+        // ─── RL MANEUVERING AGENT (Left) ────────────────────────────────
+        Window::new("🚀 RL MANEUVERING AGENT")
+            .anchor(Align2::LEFT_TOP, [20.0, 500.0])
+            .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
+            .show(ctx, |ui| {
+                ui.label(egui::RichText::new("RECOMMENDED AVOIDANCE BURNS").strong().color(Color32::from_rgb(100, 255, 100)));
+                ui.separator();
+                
+                let mut risks: Vec<_> = sim.predictor.risk_map.iter().collect();
+                risks.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+                
+                let mut execute_burn_id = None;
+                let mut execute_burn_dv = glam::DVec3::ZERO;
+                let mut displayed = 0;
+
+                for (&(id1, id2), &risk) in risks.iter() {
+                    let b1 = sim.bodies.iter().find(|b| b.id == id1);
+                    let b2 = sim.bodies.iter().find(|b| b.id == id2);
+                    
+                    if let (Some(s1), Some(s2)) = (b1, b2) {
+                        let is_s1_sat = matches!(s1.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
+                        let is_s2_sat = matches!(s2.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya);
+                        
+                        let (target_sat, threat_body) = if is_s1_sat {
+                            (s1, s2)
+                        } else if is_s2_sat {
+                            (s2, s1)
+                        } else {
+                            continue; // Skip debris-on-debris collisions
+                        };
+
+                        let relative_vel = (target_sat.vel - threat_body.vel).length();
+                        let dv_magnitude = (risk as f64 * relative_vel * 10.0).max(0.5); // Mock output in m/s
+                        let direction = if target_sat.id % 2 == 0 { "Prograde" } else { "Normal" };
+                        
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(format!("Target: {}", target_sat.name)).strong());
+                                if ui.button("🎯 Track").clicked() {
+                                    *selected_body = Some(target_sat.id);
+                                    camera.focus_on(target_sat.pos);
+                                }
+                            });
+                            ui.label(format!("Threat: {} (Risk: {:.0}%)", threat_body.name, risk * 100.0));
+                            ui.horizontal(|ui| {
+                                ui.label("Action:");
+                                ui.colored_label(Color32::GREEN, format!("Δv {:.2} m/s {}", dv_magnitude, direction));
+                            });
+                            if ui.button("EXECUTE BURN").clicked() {
+                                println!("RL AGENT EXECUTED BURN: {} m/s on {}", dv_magnitude, target_sat.name);
+                                
+                                // Auto-track and zoom on the satellite that is executing the burn
+                                *selected_body = Some(target_sat.id);
+                                camera.focus_on(target_sat.pos);
+
+                                let v_hat = target_sat.vel.normalize();
+                                let mut delta_v = v_hat * (dv_magnitude / 1000.0);
+                                if direction == "Normal" {
+                                    let h_hat = target_sat.pos.cross(target_sat.vel).normalize();
+                                    delta_v = h_hat * (dv_magnitude / 1000.0);
+                                }
+                                execute_burn_id = Some(target_sat.id);
+                                execute_burn_dv = delta_v;
+                            }
+                        });
+                        
+                        displayed += 1;
+                        if displayed >= 3 { break; }
+                    }
+                }
+
+                if let Some(id) = execute_burn_id {
+                    if let Some(b) = sim.bodies.iter_mut().find(|b| b.id == id) {
+                        b.vel += execute_burn_dv;
+                        b.tle = None; // Detach from fixed TLE orbit so physics applies!
+                    }
+                }
+            });
     }
+
+    // ─── NETWORK & ENERGY MODE (Top Right) ────────────────────────────────
+    Window::new("🌐 NETWORK OVERVIEW")
+        .anchor(Align2::RIGHT_TOP, [-20.0, 150.0]) // Below Event Alert
+        .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new("COMMUNICATION & POWER").strong().color(Color32::LIGHT_GREEN));
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Display Mode:");
+                if ui.add(egui::widgets::SelectableLabel::new(sim.network_mode_active, "ENABLE NETWORK/ENERGY VIEW")).clicked() {
+                    sim.network_mode_active = !sim.network_mode_active;
+                }
+            });
+            if sim.network_mode_active {
+                ui.colored_label(Color32::GREEN, "🟢 Transmitting (LOS Active)");
+                ui.colored_label(Color32::GRAY, "⚪ Recharging (No LOS)");
+                ui.colored_label(Color32::RED, "🔴 Low Battery (<20%)");
+            }
+        });
 
     // ─── SELECTED OBJECT (Bottom Right) ─────────────────────────────────────
     if let Some(id) = *selected_body {
@@ -224,6 +332,38 @@ pub fn draw_hud(
                     ui.label(format!("Pos: [{:.1}, {:.1}, {:.1}] km", body.pos.x, body.pos.y, body.pos.z));
                     ui.label(format!("Vel: [{:.3}, {:.3}, {:.3}] km/s", body.vel.x, body.vel.y, body.vel.z));
                     ui.label(format!("Alt: {:.1} km", body.pos.length() - 6371.0));
+                    
+                    if matches!(body.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya) {
+                        ui.separator();
+                        ui.label(egui::RichText::new("ENERGY & NETWORK").strong().color(Color32::YELLOW));
+                        let pct = (body.current_battery / body.battery_capacity) * 100.0;
+                        ui.label(format!("Battery Level: {:.1}%", pct));
+                        if body.has_los {
+                            ui.colored_label(Color32::GREEN, "Network Link: ACTIVE (Transmitting)");
+                        } else {
+                            ui.colored_label(Color32::GRAY, "Network Link: OFFLINE (No Line-of-Sight)");
+                        }
+                    }
+                    
+                    let origin_str = match body.body_type {
+                        BodyType::LiveSatellite => "India (ISRO / Indian Registry)".to_string(),
+                        BodyType::Zarya => "International (ISS Zarya)".to_string(),
+                        BodyType::Russs => "Russia (Cosmos)".to_string(),
+                        BodyType::Iridium33 => "United States (Iridium)".to_string(),
+                        BodyType::CollisionDebris | BodyType::PreExistingDebris => {
+                            let upper_name = body.name.to_uppercase();
+                            if upper_name.contains("COSMOS") || upper_name.contains("2251") {
+                                "Fragment of Cosmos 2251 (Russia)".to_string()
+                            } else if upper_name.contains("IRIDIUM") || upper_name.contains("33") {
+                                "Fragment of Iridium 33 (United States)".to_string()
+                            } else if upper_name.contains("ZARYA") {
+                                "Fragment of ISS Zarya".to_string()
+                            } else {
+                                "Unknown Orbital Debris".to_string()
+                            }
+                        }
+                    };
+                    ui.label(egui::RichText::new(format!("Origin: {}", origin_str)).strong().color(Color32::LIGHT_BLUE));
                     
                     if let Some(tle) = &body.tle {
                         ui.separator();

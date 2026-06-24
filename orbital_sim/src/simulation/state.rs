@@ -56,6 +56,12 @@ pub struct SimState {
     pub iridium_offset: f64,
     pub jd_start: f64,
     pub predictor: GnnPredictor,
+    pub sim_speed_multiplier: f64,
+    pub last_gnn_update: f64,
+
+    pub network_mode_active: bool,
+    pub ground_stations: Vec<DVec3>,
+    pub show_debris: bool,
 }
 
 impl SimState {
@@ -87,6 +93,17 @@ impl SimState {
             iridium_offset: 0.0,
             jd_start: 0.0, 
             predictor: GnnPredictor::new(),
+            sim_speed_multiplier: 1.0,
+            last_gnn_update: 0.0,
+            network_mode_active: false,
+            ground_stations: vec![
+                // Example Indian ground stations (approximate coordinates converted to Earth-centered ECI-like vectors)
+                // Just placeholders using random vectors on the sphere surface * 6371.0
+                // For simplicity, we will assume a stationary Earth for the LOS check, or just place them along the equator/India lat.
+                DVec3::new(1280.0, 5630.0, 2670.0), // ~Bengaluru / ISTRAC approx
+                DVec3::new(1030.0, 5010.0, 3600.0), // ~New Delhi approx
+            ],
+            show_debris: true,
         };
         state.force_geometric_intersection();
         state.precompute_paths();
@@ -205,7 +222,7 @@ impl SimState {
 
     pub fn step(&mut self, wall_dt: f64) {
         if self.paused { return; }
-        let sim_dt = (wall_dt * self.time_scale).min(100.0);
+        let sim_dt = (wall_dt * self.time_scale * self.sim_speed_multiplier).min(100.0);
         let sub_steps = 4;
         let dt = sim_dt / sub_steps as f64;
 
@@ -220,6 +237,42 @@ impl SimState {
                 body.age += sim_dt;
                 if body.highlight > 0.0 {
                     body.highlight = (body.highlight - 0.2).max(0.0);
+                }
+
+                // Energy and Network Simulation
+                if matches!(body.body_type, BodyType::LiveSatellite | BodyType::Russs | BodyType::Iridium33 | BodyType::Zarya) {
+                    body.has_los = false;
+                    for gs in &self.ground_stations {
+                        let rel = body.pos - *gs;
+                        if rel.dot(*gs) > 0.0 { // Elevation > 0 approx
+                            body.has_los = true;
+                            break;
+                        }
+                    }
+
+                    body.is_transmitting = body.has_los;
+
+                    if body.is_transmitting {
+                        // Drain battery
+                        body.current_battery -= 0.05 * sim_dt; 
+                    } else {
+                        // Recharge battery (assume solar panels active)
+                        body.current_battery += 0.02 * sim_dt;
+                    }
+                    body.current_battery = body.current_battery.clamp(0.0, body.battery_capacity);
+                    
+                    // Optional visual override
+                    if self.network_mode_active {
+                        if body.current_battery < 20.0 {
+                            body.color_override = Some([1.0, 0.0, 0.0, 1.0]); // Critical battery
+                        } else if body.is_transmitting {
+                            body.color_override = Some([0.0, 1.0, 0.0, 1.0]); // Transmitting
+                        } else {
+                            body.color_override = Some([0.5, 0.5, 0.5, 1.0]); // Idle / Recharging
+                        }
+                    } else {
+                        body.color_override = None;
+                    }
                 }
             }
         }
@@ -254,9 +307,11 @@ impl SimState {
         self.collision_events.extend(events);
 
         self.bodies.retain(|b| b.alive);
-        
         // ─── GNN AI PREDICTION STEP ───
-        self.predictor.update(&self.bodies);
+        if self.time - self.last_gnn_update > 200.0 {
+            self.predictor.update(&self.bodies);
+            self.last_gnn_update = self.time;
+        }
     }
 
     fn integrate_step(&mut self, dt: f64) {

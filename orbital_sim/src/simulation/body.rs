@@ -75,6 +75,11 @@ pub struct Body {
     pub spawned_at: f64,
     pub color_override: Option<[f32; 4]>,
     pub tle: Option<TleElements>,
+    // New Energy and Network fields
+    pub battery_capacity: f64,
+    pub current_battery: f64,
+    pub is_transmitting: bool,
+    pub has_los: bool,
 }
 
 impl Body {
@@ -102,6 +107,10 @@ impl Body {
             spawned_at,
             color_override: None,
             tle: None,
+            battery_capacity: 100.0,
+            current_battery: 100.0,
+            is_transmitting: false,
+            has_los: false,
         }
     }
 

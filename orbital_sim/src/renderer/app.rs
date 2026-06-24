@@ -67,7 +67,17 @@ pub fn run() -> Result<()> {
     // 3. Strategic Satellite Population (Targeting ~1000 total)
     println!("Populating strategic satellite constellation...");
     let mut live_sats = Vec::new();
-    for tle in all_satellite_tles.iter().take(1500) { 
+    let indian_keywords = [
+        "INSAT", "GSAT", "IRS ", "CARTOSAT", "RISAT", "OCEANSAT", 
+        "RESOURCESAT", "MICROSAT", "ASTROSAT", "SARAL", "MEGHA", 
+        "EOS", "CMS", "IRNSS", "NAVIC", "KALPANA", "EDUSAT", 
+        "HAMSAT", "ARYABHATA", "BHASKARA", "ROHINI", "APPLE", 
+        "YOUTHSAT", "SRMSAT", "JUGNU", "ANUSAT", "STUDSAT", 
+        "PRATHAM", "PISAT", "SATHYABAMASAT", "SWAYAM", "NIUSAT", 
+        "XPOSAT", "SINDHUNETRA", "ANAND", "KALAM", "AZADISAT"
+    ];
+
+    for tle in all_satellite_tles.iter() { 
         if live_sats.len() >= 997 { break; }
         
         // De-duplication: Skip primary scenario satellites
@@ -76,10 +86,23 @@ pub fn run() -> Result<()> {
             continue;
         }
 
+        let is_indian = indian_keywords.iter().any(|&k| name.contains(k));
+        if !is_indian {
+            continue;
+        }
+
+        // Exclude imposters that accidentally matched substrings
+        if name.contains("LATINSAT") || name.contains("THEOS") || name.contains("BUGSAT") || 
+           name.contains("TIGRISAT") || name.contains("NEOSSAT") || name.contains("KAZEOSAT") || 
+           name.contains("OREOS") || name.contains("GALILEO") {
+            continue;
+        }
+
         let a = tle.semi_major_axis();
         let alt_avg = a - 6371.0;
         
-        if alt_avg > 100.0 && alt_avg < 2000.0 {
+        // Extended altitude to 50,000 km to capture MEO (NavIC) and GEO (INSAT/GSAT) satellites
+        if alt_avg > 100.0 && alt_avg < 50000.0 {
             let dt_from_epoch = (sim.jd_start - tle.epoch_jd) * 86400.0;
             let (pos, vel) = tle.propagate(dt_from_epoch);
             
@@ -153,10 +176,11 @@ pub fn run() -> Result<()> {
                         match state {
                             ElementState::Pressed => camera.on_mouse_press(btn),
                             ElementState::Released => {
+                                let click_pos = camera.last_mouse;
                                 camera.on_mouse_release(btn);
                                 if btn == 0 {
                                     // Left click released -> Try selection
-                                    if let Some(pos) = camera.last_mouse {
+                                    if let Some(pos) = click_pos {
                                         let size = window.inner_size();
                                         let mut best_id = None;
                                         let mut best_score = f32::MAX;
@@ -248,8 +272,8 @@ pub fn run() -> Result<()> {
 
                         let aspect = size.width as f32 / size.height as f32;
                         gpu.update_uniforms(camera.view_proj(), sim.time as f32, sim.flash_intensity, aspect, camera.distance);
-                        gpu.update_bodies(&sim.bodies);
-                        gpu.update_trails(&sim.bodies);
+                        gpu.update_bodies(&sim.bodies, sim.show_debris);
+                        gpu.update_trails(&sim.bodies, sim.show_debris);
 
                         let frame = match gpu.surface.get_current_texture() {
                             Ok(f) => f,
