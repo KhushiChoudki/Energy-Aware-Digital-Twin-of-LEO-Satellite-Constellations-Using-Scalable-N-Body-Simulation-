@@ -80,6 +80,7 @@ pub struct Body {
     pub current_battery: f64,
     pub is_transmitting: bool,
     pub has_los: bool,
+    pub thrust_flash: f64,
 }
 
 impl Body {
@@ -111,6 +112,7 @@ impl Body {
             current_battery: 100.0,
             is_transmitting: false,
             has_los: false,
+            thrust_flash: 0.0,
         }
     }
 
@@ -123,6 +125,10 @@ impl Body {
     }
 
     pub fn effective_color(&self) -> [f32; 4] {
+        if self.thrust_flash > 0.0 {
+            // Intense orange/yellow for thrust visual feedback
+            return [1.0, 0.6, 0.0, 1.0];
+        }
         let base = self.color_override.unwrap_or_else(|| self.body_type.default_color());
         let h = self.highlight;
         [
