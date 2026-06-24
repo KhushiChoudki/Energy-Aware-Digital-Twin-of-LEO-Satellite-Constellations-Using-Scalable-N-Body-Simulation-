@@ -1,16 +1,18 @@
 # Energy-Aware Digital Twin of LEO Satellite Constellations
 
+![Orbital Simulation](https://img.shields.io/badge/Status-Development-orange)
+![Rust](https://img.shields.io/badge/Language-Rust-red)
+![WGPU](https://img.shields.io/badge/Graphics-WGPU-blue)
+
 A high-performance, industry-standard digital twin for Low Earth Orbit (LEO) satellite constellations. This project couples scalable N-body physics simulation (Barnes-Hut algorithm), real-time Graph Neural Network (GNN) collision prediction, and Reinforcement Learning (RL) autonomous evasion maneuvers with dynamic energy and network uptime tracking.
 
-![System Overview](<img width="1593" height="876" alt="image" src="https://github.com/user-attachments/assets/37deed48-3781-4401-afb0-5f5feaea4fa1" />
-
-)
-*(Please replace `assets/ui_screenshot_1.png` with a screenshot of the main UI interface)*
+<img width="100%" alt="System Overview" src="https://github.com/user-attachments/assets/37deed48-3781-4401-afb0-5f5feaea4fa1" />
 
 ## Table of Contents
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [System Architecture](#system-architecture)
+- [Technology Stack](#technology-stack)
 - [Simulation Mechanics & Physics](#simulation-mechanics--physics)
 - [Reinforcement Learning Auto-Evasion](#reinforcement-learning-auto-evasion)
 - [Energy & Network Analysis](#energy--network-analysis)
@@ -21,35 +23,40 @@ A high-performance, industry-standard digital twin for Low Earth Orbit (LEO) sat
 
 As orbital zones become increasingly congested, manual monitoring of satellite constellations is no longer viable. This project provides a **Digital Twin** that seamlessly integrates:
 1. **Kinetic Realism**: Simulating thousands of debris objects using GPU-accelerated scalable N-Body physics.
-2. **Predictive AI**: A GNN that continuously maps collision risks based on spatial proximity and velocity.
-3. **Prescriptive Autonomy**: An RL Agent capable of performing autonomous Delta-V maneuvers to evade threats while minimizing battery consumption.
+2. **Predictive AI**: A GNN that continuously maps collision risks based on spatial proximity and velocity, proactively identifying high-risk conjunctions.
+3. **Prescriptive Autonomy**: An RL Agent capable of performing autonomous Delta-V maneuvers to evade threats while minimizing battery consumption and maintaining service availability.
+4. **Energy Dynamics**: Tracking energy usage, solar generation, and data transmission capabilities in a unified model to ensure robust mission lifecycles.
 
-![Collision Avoidance View](<img width="1600" height="883" alt="image" src="https://github.com/user-attachments/assets/db43ece2-ee9d-4f98-b678-5a384fc5d303" />
-
-)
-
+<img width="100%" alt="Collision Avoidance View" src="https://github.com/user-attachments/assets/b1c34296-cf78-4f59-8a3b-9dae13041a7e" />
 
 ## Key Features
 
-- **Scalable N-Body Barnes-Hut Gravity Engine**: Simulates gravitational interactions between thousands of objects without O(N^2) bottlenecks.
+- **Scalable N-Body Barnes-Hut Gravity Engine**: Simulates gravitational interactions between thousands of objects without O(N^2) bottlenecks, enabling massive-scale scenarios.
 - **Real-Time WGPU Rendering**: High-performance Rust-based rendering capable of drawing tens of thousands of debris pieces, complete with orbital trails and cinematic engine flares during maneuvers.
-- **Dynamic Movable Telemetry HUD**: Clean, professional `egui`-based interface where all windows can be dragged and rearranged for optimal presentation flow.
+- **Dynamic Movable Telemetry HUD**: Clean, professional `egui`-based interface where all windows can be dragged and rearranged for optimal presentation flow. Includes real-time graphs and state tracking.
 - **Autonomous Evasion AI**: Configurable RL agent that calculates risk and can automatically trigger life-saving thrusts.
-- **Power & Data Coupling**: Realistic Line-of-Sight (LOS) calculations to ground stations that dictate data transmission windows, draining battery reserves that are replenished by solar energy.
+- **Power & Data Coupling**: Realistic Line-of-Sight (LOS) calculations to ground stations that dictate data transmission windows, draining battery reserves that are replenished by solar energy based on sun-exposure phases.
+
+## Technology Stack
+
+- **Backend & Physics Engine**: Rust, leveraging zero-cost abstractions for compute-heavy N-Body simulations.
+- **Graphics API**: WGPU (WebGPU implementation for Rust), providing cross-platform GPU access.
+- **UI Toolkit**: `egui` for immediate-mode GUI, enabling highly responsive and customizable HUD elements.
+- **Machine Learning**: Custom integrations for Graph Neural Networks and Reinforcement Learning algorithms.
 
 ## System Architecture
 
-The architecture relies on a highly concurrent Rust backend that feeds physics state data into the rendering pipeline while synchronously updating the GNN feature graphs.
+The architecture relies on a highly concurrent Rust backend that feeds physics state data into the rendering pipeline while synchronously updating the GNN feature graphs. The pipeline is designed for minimal latency, ensuring smooth frame rates even with tens of thousands of tracked objects.
 
-![System Architecture Diagram](<img width="890" height="2527" alt="image" src="https://github.com/user-attachments/assets/881da91e-b301-4aed-b2c3-6859e7e09e24" />
-
-)
+<div align="center">
+  <img height="400" alt="System Architecture Diagram" src="https://github.com/user-attachments/assets/6089fd75-6723-49b9-9857-2063d4a4fb1a" />
+</div>
 
 ## Simulation Mechanics & Physics
 
-- **TLE Parsing & Propagation**: Primary satellites and known debris clouds are initialized via SGP4-compatible TLE parsing.
-- **Kinetic Detachment**: Once a maneuver is initiated, the satellite dynamically detaches from static TLE propagation and transitions into a 4th-order Runge-Kutta (RK4) physics integrator to map its new orbit.
-- **Collision Generation**: The system dynamically models the historical Cosmos-2251 & Iridium-33 collision, spawning thousands of kinetic fragments that physically interact with the environment.
+- **TLE Parsing & Propagation**: Primary satellites and known debris clouds are initialized via SGP4-compatible TLE parsing from live or historical datasets.
+- **Kinetic Detachment**: Once a maneuver is initiated, the satellite dynamically detaches from static TLE propagation and transitions into a 4th-order Runge-Kutta (RK4) physics integrator to accurately map its new orbit.
+- **Collision Generation**: The system dynamically models historical events (e.g., Cosmos-2251 & Iridium-33 collision), spawning thousands of kinetic fragments that physically interact with the environment.
 
 ## Reinforcement Learning Auto-Evasion
 
@@ -65,11 +72,9 @@ The AI dashboard allows users to toggle between **Manual Mode** (where the syste
 
 ## Energy & Network Analysis
 
-Maneuvers are not free. Firing thrusters or transmitting data while in LOS of ground stations heavily depletes battery reserves. If a satellite triggers an evasion maneuver while at low power, it risks complete system failure.
+Maneuvers are not free. Firing thrusters or transmitting data while in LOS of ground stations heavily depletes battery reserves. If a satellite triggers an evasion maneuver while at low power, it risks complete system failure. The digital twin visualizes these critical trade-offs in real-time.
 
-![Energy and Uptime Graph](<img width="2958" height="1464" alt="image" src="https://github.com/user-attachments/assets/b848a4d0-cf06-4c90-aa63-ebd2ee9a618e" />
-
-)
+<img width="100%" alt="Energy and Uptime Graph" src="https://github.com/user-attachments/assets/c575df93-6450-48eb-b567-7be0db50bd1e" />
 
 **Analytical Insights:**
 - **Green Bars**: Successful network transmission windows (LOS established, battery sufficient).
@@ -79,8 +84,8 @@ Maneuvers are not free. Firing thrusters or transmitting data while in LOS of gr
 ## Getting Started
 
 ### Prerequisites
-- **Rust**: Ensure you have the latest stable Rust toolchain installed.
-- **Vulkan/DirectX12**: A compatible GPU for WGPU rendering.
+- **Rust**: Ensure you have the latest stable Rust toolchain installed (1.70+ recommended).
+- **Vulkan/DirectX12/Metal**: A compatible GPU for WGPU rendering.
 
 ### Build and Run
 1. Clone the repository.
@@ -102,4 +107,4 @@ cargo run --release
 - **Keerthi M**, Dept of ISE, RV College of Engineering (keerthim.is23@rvce.edu.in)
 - **Tejas L**, Dept of ASE, RV College of Engineering (tejasl.ae23@rvce.edu.in)
 - **Akula Uday Kiran**, Dept of ASE, RV College of Engineering (akulauday.ae23@rvce.edu.in)
-- **Dr. Rachana S Akki**, Dept of EEE, RV College of Engineering
+- **Dr. Rachana S Akki**, Dept of EEE, RV College of Engineering (rachana.akki@rvce.edu.in)
