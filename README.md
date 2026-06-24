@@ -11,7 +11,6 @@ A high-performance, industry-standard digital twin for Low Earth Orbit (LEO) sat
 ## Table of Contents
 - [Overview](#overview)
 - [Key Features](#key-features)
-- [System Architecture](#system-architecture)
 - [Simulation Mechanics & Physics](#simulation-mechanics--physics)
 - [Reinforcement Learning Auto-Evasion](#reinforcement-learning-auto-evasion)
 - [Energy & Network Analysis](#energy--network-analysis)
@@ -35,11 +34,6 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 - **Autonomous Evasion AI**: Configurable RL agent that calculates risk and can automatically trigger life-saving thrusts.
 - **Power & Data Coupling**: Realistic Line-of-Sight (LOS) calculations to ground stations that dictate data transmission windows, draining battery reserves that are replenished by solar energy.
 
-## System Architecture
-
-The architecture relies on a highly concurrent Rust backend that feeds physics state data into the rendering pipeline while synchronously updating the GNN feature graphs.
-
-<img width="890" height="2527" alt="System Architecture Diagram" src="https://github.com/user-attachments/assets/6089fd75-6723-49b9-9857-2063d4a4fb1a" />
 
 ## Simulation Mechanics & Physics
 
