@@ -2,7 +2,9 @@
 
 A high-performance, industry-standard digital twin for Low Earth Orbit (LEO) satellite constellations. This project couples scalable N-body physics simulation (Barnes-Hut algorithm), real-time Graph Neural Network (GNN) collision prediction, and Reinforcement Learning (RL) autonomous evasion maneuvers with dynamic energy and network uptime tracking.
 
-![System Overview](assets/ui_screenshot_1.png)
+![System Overview](<img width="1593" height="876" alt="image" src="https://github.com/user-attachments/assets/37deed48-3781-4401-afb0-5f5feaea4fa1" />
+
+)
 *(Please replace `assets/ui_screenshot_1.png` with a screenshot of the main UI interface)*
 
 ## Table of Contents
@@ -22,7 +24,8 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 2. **Predictive AI**: A GNN that continuously maps collision risks based on spatial proximity and velocity.
 3. **Prescriptive Autonomy**: An RL Agent capable of performing autonomous Delta-V maneuvers to evade threats while minimizing battery consumption.
 
-![Collision Avoidance View](assets/ui_screenshot_2.png)
+![Collision Avoidance View](<img width="1592" height="900" alt="image" src="https://github.com/user-attachments/assets/b1c34296-cf78-4f59-8a3b-9dae13041a7e" />
+)
 *(Please replace `assets/ui_screenshot_2.png` with a screenshot of the satellite executing a yellow thrust maneuver)*
 
 ## Key Features
@@ -37,7 +40,8 @@ As orbital zones become increasingly congested, manual monitoring of satellite c
 
 The architecture relies on a highly concurrent Rust backend that feeds physics state data into the rendering pipeline while synchronously updating the GNN feature graphs.
 
-![System Architecture Diagram](assets/architecture.png)
+![System Architecture Diagram](<img width="890" height="2527" alt="image" src="https://github.com/user-attachments/assets/6089fd75-6723-49b9-9857-2063d4a4fb1a" />
+)
 
 ## Simulation Mechanics & Physics
 
@@ -61,7 +65,8 @@ The AI dashboard allows users to toggle between **Manual Mode** (where the syste
 
 Maneuvers are not free. Firing thrusters or transmitting data while in LOS of ground stations heavily depletes battery reserves. If a satellite triggers an evasion maneuver while at low power, it risks complete system failure.
 
-![Energy and Uptime Graph](assets/energy_graph.png)
+![Energy and Uptime Graph](<img width="2958" height="1464" alt="image" src="https://github.com/user-attachments/assets/c575df93-6450-48eb-b567-7be0db50bd1e" />
+)
 
 **Analytical Insights:**
 - **Green Bars**: Successful network transmission windows (LOS established, battery sufficient).
