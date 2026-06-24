@@ -62,6 +62,7 @@ pub struct SimState {
     pub network_mode_active: bool,
     pub ground_stations: Vec<DVec3>,
     pub show_debris: bool,
+    pub rl_auto_execute: bool,
 }
 
 impl SimState {
@@ -104,6 +105,7 @@ impl SimState {
                 DVec3::new(1030.0, 5010.0, 3600.0), // ~New Delhi approx
             ],
             show_debris: true,
+            rl_auto_execute: false,
         };
         state.force_geometric_intersection();
         state.precompute_paths();
@@ -260,6 +262,10 @@ impl SimState {
                         body.current_battery += 0.02 * sim_dt;
                     }
                     body.current_battery = body.current_battery.clamp(0.0, body.battery_capacity);
+                    
+                    if body.thrust_flash > 0.0 {
+                        body.thrust_flash = (body.thrust_flash - sim_dt).max(0.0);
+                    }
                     
                     // Optional visual override
                     if self.network_mode_active {
