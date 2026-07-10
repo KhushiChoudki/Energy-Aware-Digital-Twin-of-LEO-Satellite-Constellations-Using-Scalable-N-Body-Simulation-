@@ -2,7 +2,7 @@
 // Professional Mission Legend and HUD (AGI/STK Style)
 
 use egui::{Context, Window, Color32, Align2, FontId, Stroke, Vec2};
-use crate::simulation::state::{SimState, SimPhase};
+use crate::simulation::state::{SimState, SimPhase, IntegratorType};
 use crate::simulation::body::BodyType;
 use crate::renderer::camera::Camera;
 
@@ -168,6 +168,26 @@ pub fn draw_hud(
             });
         });
 
+    // ─── PHYSICS ENGINE SETTINGS ────────────────────────────────────────────
+    Window::new("⚙️ PHYSICS ENGINE SETTINGS")
+        .default_pos([20.0, 500.0])
+        .frame(egui::Frame::window(&ctx.style()).fill(Color32::from_black_alpha(200)))
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new("INTEGRATION MODEL").strong().color(Color32::LIGHT_GREEN));
+            ui.separator();
+            ui.radio_value(&mut sim.integrator_type, IntegratorType::Rk4FastEarth, "RK4 (Decoupled Kinematic Approximation)");
+            ui.radio_value(&mut sim.integrator_type, IntegratorType::Euler, "Euler (1st Order N-Body)");
+            ui.radio_value(&mut sim.integrator_type, IntegratorType::Rk4Naive, "RK4 (Naive O(N²))");
+            ui.radio_value(&mut sim.integrator_type, IntegratorType::Rk4BarnesHut, "RK4 (Barnes-Hut O(N log N))");
+            
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Compute Time / Step:");
+                let color = if sim.compute_time_ms > 10.0 { Color32::RED } else if sim.compute_time_ms > 2.0 { Color32::YELLOW } else { Color32::GREEN };
+                ui.colored_label(color, format!("{:.2} ms", sim.compute_time_ms));
+            });
+        });
+
     // ─── EVENT ALERT (Top Right) ──────────────────────────────────────────
     if let Some(ev) = sim.collision_events.last() {
         Window::new("⚠ EVENT ALERT")
@@ -292,6 +312,10 @@ pub fn draw_hud(
                         b.vel += execute_burn_dv;
                         b.tle = None; // Detach from fixed TLE orbit so physics applies!
                         b.thrust_flash = 5.0; // Visual thrust feedback for 5 seconds
+                        
+                        // Enforce the -10 * Δv RL Battery Penalty!
+                        let dv_magnitude = execute_burn_dv.length() * 1000.0;
+                        b.current_battery -= dv_magnitude * 10.0;
                     }
                 }
             });

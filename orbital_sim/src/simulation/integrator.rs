@@ -21,22 +21,37 @@ pub fn verlet_step(pos: &mut DVec3, vel: &mut DVec3, dt: f64, extra_acc: DVec3) 
     *pos = new_pos;
 }
 
-/// RK4 step – more accurate for large time steps
 pub fn rk4_step(pos: &mut DVec3, vel: &mut DVec3, dt: f64) {
-    let accel = |p: DVec3| earth_gravity(p);
+    rk4_step_accel(pos, vel, dt, |p| earth_gravity(p));
+}
 
-    let k1v = accel(*pos);
+/// Generic RK4 step with custom acceleration function
+pub fn rk4_step_accel<F>(pos: &mut DVec3, vel: &mut DVec3, dt: f64, accel_fn: F)
+where
+    F: Fn(DVec3) -> DVec3,
+{
+    let k1v = accel_fn(*pos);
     let k1r = *vel;
 
-    let k2v = accel(*pos + k1r * (dt * 0.5));
+    let k2v = accel_fn(*pos + k1r * (dt * 0.5));
     let k2r = *vel + k1v * (dt * 0.5);
 
-    let k3v = accel(*pos + k2r * (dt * 0.5));
+    let k3v = accel_fn(*pos + k2r * (dt * 0.5));
     let k3r = *vel + k2v * (dt * 0.5);
 
-    let k4v = accel(*pos + k3r * dt);
+    let k4v = accel_fn(*pos + k3r * dt);
     let k4r = *vel + k3v * dt;
 
     *pos += (k1r + k2r * 2.0 + k3r * 2.0 + k4r) * (dt / 6.0);
     *vel += (k1v + k2v * 2.0 + k3v * 2.0 + k4v) * (dt / 6.0);
+}
+
+/// Generic Euler step for comparison
+pub fn euler_step<F>(pos: &mut DVec3, vel: &mut DVec3, dt: f64, accel_fn: F)
+where
+    F: Fn(DVec3) -> DVec3,
+{
+    let a = accel_fn(*pos);
+    *pos += *vel * dt;
+    *vel += a * dt;
 }

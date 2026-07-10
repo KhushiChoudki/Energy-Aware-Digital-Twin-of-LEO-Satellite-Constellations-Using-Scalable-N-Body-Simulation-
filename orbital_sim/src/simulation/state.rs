@@ -10,8 +10,9 @@ use crate::data::{
 use crate::simulation::{
     body::{Body, BodyType},
     collision::{check_collisions, CollisionEvent},
-    integrator::rk4_step,
+    integrator::{rk4_step, rk4_step_accel, euler_step, earth_gravity},
     gnn_predictor::GnnPredictor,
+    barnes_hut::BarnesHut,
 };
 
 pub const MAX_DEBRIS: usize = 50000; 
@@ -22,6 +23,14 @@ pub enum SimPhase {
     PreCollision,
     CollisionFlash(f64),
     PostCollision,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IntegratorType {
+    Rk4FastEarth,
+    Euler,
+    Rk4Naive,
+    Rk4BarnesHut,
 }
 
 pub struct OrbitPath {
@@ -63,6 +72,9 @@ pub struct SimState {
     pub ground_stations: Vec<DVec3>,
     pub show_debris: bool,
     pub rl_auto_execute: bool,
+
+    pub integrator_type: IntegratorType,
+    pub compute_time_ms: f64,
 }
 
 impl SimState {
@@ -106,6 +118,8 @@ impl SimState {
             ],
             show_debris: true,
             rl_auto_execute: false,
+            integrator_type: IntegratorType::Rk4FastEarth,
+            compute_time_ms: 0.0,
         };
         state.force_geometric_intersection();
         state.precompute_paths();
@@ -228,10 +242,14 @@ impl SimState {
         let sub_steps = 4;
         let dt = sim_dt / sub_steps as f64;
 
+        let start_time = std::time::Instant::now();
+
         for _ in 0..sub_steps {
             self.integrate_step(dt);
             self.time += dt;
         }
+
+        self.compute_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
 
         for body in self.bodies.iter_mut() {
             if body.alive {
@@ -321,41 +339,90 @@ impl SimState {
     }
 
     fn integrate_step(&mut self, dt: f64) {
+        let is_sgp4 = false; // Completely removed SGP4 from this logic as requested
+
+        // Build BH tree or snapshot state if we need N-body interactions
+        let positions: Vec<(DVec3, f64)> = if self.integrator_type == IntegratorType::Rk4BarnesHut || self.integrator_type == IntegratorType::Rk4Naive || self.integrator_type == IntegratorType::Euler {
+            self.bodies.iter().filter(|b| b.alive).map(|b| (b.pos, b.mass)).collect()
+        } else {
+            Vec::new()
+        };
+
+        let bh_tree = if self.integrator_type == IntegratorType::Rk4BarnesHut {
+            Some(BarnesHut::build(&positions))
+        } else {
+            None
+        };
+
+        let g_const = 6.674e-20; // km^3/(kg s^2)
+        
+        let naive_accel = |pos: DVec3| -> DVec3 {
+            let mut acc = earth_gravity(pos);
+            for &(p, m) in &positions {
+                if pos.distance_squared(p) > 1e-6 {
+                    let diff = p - pos;
+                    let dist2 = diff.length_squared() + 0.01;
+                    acc += diff.normalize() * (g_const * m / dist2);
+                }
+            }
+            acc
+        };
+
         for body in self.bodies.iter_mut() {
             if !body.alive { continue; }
             
-            // Priority 1: TLE Data (if explicitly attached)
+            // Priority 1: TLE Data (if explicitly attached or using SGP4 baseline mode)
             if let Some(tle) = &body.tle {
-                let (pos, vel) = if body.body_type == BodyType::LiveSatellite {
-                    // Sync to current JD
-                    let dt_from_epoch = (self.jd_start - tle.epoch_jd) * 86400.0 + self.time;
-                    tle.propagate(dt_from_epoch)
-                } else {
-                    // Scenario-based offset for debris cloud
-                    let offset = if body.name.contains("IRIDIUM") { self.iridium_offset } else { self.russs_offset };
-                    tle.propagate(self.time + offset)
-                };
-                body.pos = pos;
-                body.vel = vel;
-                continue;
+                if body.thrust_flash == 0.0 || is_sgp4 { // allow breakaway if maneuvering, unless forced SGP4
+                    let (pos, vel) = if body.body_type == BodyType::LiveSatellite {
+                        // Sync to current JD
+                        let dt_from_epoch = (self.jd_start - tle.epoch_jd) * 86400.0 + self.time;
+                        tle.propagate(dt_from_epoch)
+                    } else {
+                        // Scenario-based offset for debris cloud
+                        let offset = if body.name.contains("IRIDIUM") { self.iridium_offset } else { self.russs_offset };
+                        tle.propagate(self.time + offset)
+                    };
+                    body.pos = pos;
+                    body.vel = vel;
+                    continue;
+                }
             }
 
             match body.body_type {
-                BodyType::Zarya => {
+                BodyType::Zarya if is_sgp4 => {
                     if let Some((pos, vel)) = interpolate_ephemeris(&self.zarya_ephem, self.time) {
                         body.pos = pos; body.vel = vel;
                     }
                 }
-                BodyType::Russs => {
+                BodyType::Russs if is_sgp4 => {
                     let (pos, vel) = self.russs_tle.propagate(self.time + self.russs_offset);
                     body.pos = pos; body.vel = vel;
                 }
-                BodyType::Iridium33 => {
+                BodyType::Iridium33 if is_sgp4 => {
                     let (pos, vel) = self.iridium_tle.propagate(self.time + self.iridium_offset);
                     body.pos = pos; body.vel = vel;
                 }
                 _ => {
-                    rk4_step(&mut body.pos, &mut body.vel, dt);
+                    match self.integrator_type {
+                        IntegratorType::Rk4FastEarth => {
+                            // ORIGINAL BLAZING FAST O(N) MODE
+                            rk4_step_accel(&mut body.pos, &mut body.vel, dt, |p| earth_gravity(p));
+                        }
+                        IntegratorType::Euler => {
+                            let mass = body.mass;
+                            euler_step(&mut body.pos, &mut body.vel, dt, |p| naive_accel(p));
+                        }
+                        IntegratorType::Rk4Naive => {
+                            let mass = body.mass;
+                            rk4_step_accel(&mut body.pos, &mut body.vel, dt, |p| naive_accel(p));
+                        }
+                        IntegratorType::Rk4BarnesHut => {
+                            let mass = body.mass;
+                            let tree = bh_tree.as_ref().unwrap();
+                            rk4_step_accel(&mut body.pos, &mut body.vel, dt, |p| tree.acceleration(p, mass));
+                        }
+                    }
                     if body.pos.length() < 6371.0 + 80.0 {
                         body.alive = false;
                     }
